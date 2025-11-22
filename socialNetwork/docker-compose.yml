@@ -296,6 +296,8 @@ services:
       - 8081:8080
     restart: always
     depends_on:
+      nginx-thrift:
+        condition: service_started
       jaeger-agent:
         condition: service_started
     volumes:
