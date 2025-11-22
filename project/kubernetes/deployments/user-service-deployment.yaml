@@ -1,0 +1,90 @@
+# Kubernetes Deployment for User Service (DeathStarBench)
+#
+# WHAT THIS DOES:
+# This deployment manages the User microservice pods from DeathStarBench.
+# The User service handles user account operations (create, read, update profiles).
+#
+# KEY POINTS:
+# - Uses the DeathStarBench unified image with entrypoint: UserService
+# - Connects to user-mongodb and user-memcached
+# - All services run on port 9090 (Thrift protocol)
+# - Requires config volume mount for service-config.json
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service-deployment
+  namespace: default
+  labels:
+    app: user-service
+    component: backend
+    microservice: deathstarbench
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: user-service
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: user-service
+        component: backend
+        microservice: deathstarbench
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      containers:
+      - name: user-service
+        # DeathStarBench uses a single image with different entrypoints
+        image: deathstarbench/social-network-microservices:latest
+        imagePullPolicy: IfNotPresent
+        
+        # Entrypoint determines which service runs from the unified image
+        command: ["/social-network-microservices/build/UserService"]
+        
+        ports:
+        - containerPort: 9090
+          name: thrift
+          protocol: TCP
+        
+        # Environment variables
+        env:
+        - name: SERVICE_NAME
+          value: "user-service"
+        
+        # Mount configuration files
+        volumeMounts:
+        - name: config
+          mountPath: /social-network-microservices/config
+          readOnly: true
+        
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+        
+        # Note: DeathStarBench services use Thrift, not HTTP
+        # Health checks may need to be adapted or disabled
+        # livenessProbe:
+        #   exec:
+        #     command: ["/bin/sh", "-c", "netstat -an | grep 9090"]
+        #   initialDelaySeconds: 30
+        #   periodSeconds: 30
+        
+      volumes:
+      - name: config
+        configMap:
+          name: deathstarbench-config
+      
+      restartPolicy: Always
+

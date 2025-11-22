@@ -1,0 +1,41 @@
+# Kubernetes Service for User Service
+#
+# WHAT THIS DOES:
+# This service provides a stable endpoint for the User microservice. Other services
+# (like Nginx) can connect to "user-service" and Kubernetes will automatically route
+# traffic to healthy user-service pods.
+#
+# KEY CONCEPTS:
+# - DNS: Services get DNS names like user-service.default.svc.cluster.local
+# - Load balancing: Traffic is automatically distributed across all healthy pods
+# - Health checks: Only healthy pods (passing readiness probe) receive traffic
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: default
+  labels:
+    app: user-service
+    component: backend
+spec:
+  # ClusterIP is the default - only accessible within the cluster
+  # This is appropriate for backend services that are accessed via the gateway
+  type: ClusterIP
+  
+  selector:
+    app: user-service
+    component: backend
+  
+  ports:
+  - name: thrift
+    port: 9090        # Service port (DeathStarBench uses 9090 for Thrift)
+    targetPort: 9090  # Container port
+    protocol: TCP
+  
+  # Session affinity - useful if you need sticky sessions
+  # sessionAffinity: ClientIP
+  # sessionAffinityConfig:
+  #   clientIP:
+  #     timeoutSeconds: 10800
+

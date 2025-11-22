@@ -1,0 +1,121 @@
+# Kubernetes Deployment for Nginx-Thrift Gateway (DeathStarBench)
+#
+# WHAT THIS DOES:
+# DeathStarBench uses nginx-thrift (OpenResty with Thrift support) as the API gateway.
+# This gateway handles HTTP requests and routes them to the appropriate Thrift microservices.
+# It's different from regular nginx - it supports Thrift protocol for service communication.
+#
+# KEY POINTS:
+# - Uses OpenResty (nginx + Lua) with Thrift support
+# - Routes HTTP requests to Thrift microservices
+# - Requires Lua scripts and configuration from DeathStarBench
+# - Exposes port 8080 for HTTP API access
+#
+# NOTE: This deployment requires files from DeathStarBench source:
+# - nginx-web-server/lua-scripts/
+# - nginx-web-server/pages/
+# - nginx-web-server/conf/nginx.conf
+# - nginx-web-server/jaeger-config.json
+# - gen-lua/
+# - docker/openresty-thrift/lua-thrift/
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-thrift-deployment
+  namespace: default
+  labels:
+    app: nginx-thrift
+    component: gateway
+    microservice: deathstarbench
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: nginx-thrift
+      component: gateway
+  template:
+    metadata:
+      labels:
+        app: nginx-thrift
+        component: gateway
+        microservice: deathstarbench
+    spec:
+      containers:
+      - name: nginx-thrift
+        # DeathStarBench uses a custom OpenResty image with Thrift support
+        image: yg397/openresty-thrift:xenial
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        # Mount volumes for Lua scripts, pages, and configuration
+        # NOTE: These need to be populated from DeathStarBench source
+        volumeMounts:
+        - name: lua-scripts
+          mountPath: /usr/local/openresty/nginx/lua-scripts
+          readOnly: true
+        - name: pages
+          mountPath: /usr/local/openresty/nginx/pages
+          readOnly: true
+        - name: nginx-config
+          mountPath: /usr/local/openresty/nginx/conf/nginx.conf
+          subPath: nginx.conf
+          readOnly: true
+        - name: jaeger-config
+          mountPath: /usr/local/openresty/nginx/jaeger-config.json
+          subPath: jaeger-config.json
+          readOnly: true
+        - name: gen-lua
+          mountPath: /gen-lua
+          readOnly: true
+        - name: lua-thrift
+          mountPath: /usr/local/openresty/lualib/thrift
+          readOnly: true
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+        # Health check
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      volumes:
+      # TODO: These volumes need to be populated from DeathStarBench source
+      # Option 1: Use ConfigMaps (for small files)
+      # Option 2: Use PersistentVolumes with init containers
+      # Option 3: Use a sidecar container that syncs files
+      - name: lua-scripts
+        emptyDir: {}  # Replace with ConfigMap or PersistentVolume
+      - name: pages
+        emptyDir: {}  # Replace with ConfigMap
+      - name: nginx-config
+        configMap:
+          name: nginx-thrift-config
+      - name: jaeger-config
+        configMap:
+          name: jaeger-config
+      - name: gen-lua
+        emptyDir: {}  # Replace with ConfigMap
+      - name: lua-thrift
+        emptyDir: {}  # Replace with ConfigMap
+      restartPolicy: Always
+

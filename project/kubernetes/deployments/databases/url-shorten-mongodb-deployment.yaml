@@ -1,0 +1,59 @@
+# MongoDB Deployment for URL Shorten Service
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: url-shorten-mongodb-deployment
+  namespace: default
+  labels:
+    app: url-shorten-mongodb
+    component: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: url-shorten-mongodb
+      component: database
+  template:
+    metadata:
+      labels:
+        app: url-shorten-mongodb
+        component: database
+    spec:
+      containers:
+      - name: mongodb
+        image: mongo:4.4.6
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 27017
+          name: mongodb
+          protocol: TCP
+        volumeMounts:
+        - name: mongodb-data
+          mountPath: /data/db
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+      volumes:
+      - name: mongodb-data
+        persistentVolumeClaim:
+          claimName: url-shorten-mongodb-pvc
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: url-shorten-mongodb-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+

@@ -1,0 +1,113 @@
+# Kubernetes Deployment for Nginx Reverse Proxy
+#
+# WHAT THIS DOES:
+# A Deployment is a Kubernetes resource that manages a set of identical pods (containers).
+# This file tells Kubernetes how many copies of the Nginx container to run and how to
+# update them when you make changes.
+#
+# KEY CONCEPTS:
+# - replicas: Number of identical pod copies to run (for high availability)
+# - selector: Labels used to identify which pods belong to this deployment
+# - template: The pod specification (what container to run, what image to use, etc.)
+# - strategy: How to update pods when you deploy a new version (rolling update)
+#
+# WHY WE NEED IT:
+# Deployments provide self-healing (restarts failed pods), scaling (change replica count),
+# and rolling updates (update without downtime).
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  namespace: default
+  labels:
+    app: nginx
+    component: gateway
+spec:
+  # Number of pod replicas to run
+  # Having multiple replicas provides high availability - if one pod fails, others continue
+  replicas: 2
+  
+  # Strategy for updating pods
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Maximum number of pods that can be unavailable during update
+      maxUnavailable: 1
+      # Maximum number of new pods that can be created during update
+      maxSurge: 1
+  
+  # Selector - identifies which pods belong to this deployment
+  selector:
+    matchLabels:
+      app: nginx
+      component: gateway
+  
+  # Pod template - defines what each pod should look like
+  template:
+    metadata:
+      labels:
+        app: nginx
+        component: gateway
+    spec:
+      # Container specification
+      containers:
+      - name: nginx
+        # Docker image to use
+        # In production, use a specific version tag (e.g., nginx:1.25.3)
+        image: nginx:alpine
+        imagePullPolicy: IfNotPresent
+        
+        # Ports the container listens on
+        ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+        
+        # Resource limits and requests
+        # requests: Guaranteed resources (Kubernetes won't schedule pod without these)
+        # limits: Maximum resources (container will be throttled/killed if exceeded)
+        resources:
+          requests:
+            cpu: 100m      # 0.1 CPU cores
+            memory: 128Mi  # 128 megabytes
+          limits:
+            cpu: 500m      # 0.5 CPU cores
+            memory: 256Mi  # 256 megabytes
+        
+        # Health check - Kubernetes uses this to determine if the pod is healthy
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 10  # Wait 10 seconds before first check
+          periodSeconds: 30        # Check every 30 seconds
+          timeoutSeconds: 5        # Timeout after 5 seconds
+          failureThreshold: 3      # Restart after 3 consecutive failures
+        
+        # Readiness probe - determines if pod is ready to receive traffic
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        
+        # Volume mounts - mount configuration files
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+          readOnly: true
+      
+      # Volumes - provide configuration files to containers
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: nginx-config
+          items:
+          - key: nginx.conf
+            path: nginx.conf
+

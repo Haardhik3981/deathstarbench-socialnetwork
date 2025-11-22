@@ -1,0 +1,256 @@
+# Kubernetes Services for All Databases (DeathStarBench)
+#
+# WHAT THIS DOES:
+# Creates ClusterIP services for all databases (MongoDB, Redis, Memcached).
+# These services provide stable DNS names that microservices use to connect.
+
+# MongoDB Services
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-mongodb
+  namespace: default
+  labels:
+    app: user-mongodb
+    component: database
+spec:
+  type: ClusterIP
+  selector:
+    app: user-mongodb
+    component: database
+  ports:
+  - port: 27017
+    targetPort: 27017
+    protocol: TCP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: social-graph-mongodb
+  namespace: default
+  labels:
+    app: social-graph-mongodb
+    component: database
+spec:
+  type: ClusterIP
+  selector:
+    app: social-graph-mongodb
+    component: database
+  ports:
+  - port: 27017
+    targetPort: 27017
+    protocol: TCP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-timeline-mongodb
+  namespace: default
+  labels:
+    app: user-timeline-mongodb
+    component: database
+spec:
+  type: ClusterIP
+  selector:
+    app: user-timeline-mongodb
+    component: database
+  ports:
+  - port: 27017
+    targetPort: 27017
+    protocol: TCP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: post-storage-mongodb
+  namespace: default
+  labels:
+    app: post-storage-mongodb
+    component: database
+spec:
+  type: ClusterIP
+  selector:
+    app: post-storage-mongodb
+    component: database
+  ports:
+  - port: 27017
+    targetPort: 27017
+    protocol: TCP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: url-shorten-mongodb
+  namespace: default
+  labels:
+    app: url-shorten-mongodb
+    component: database
+spec:
+  type: ClusterIP
+  selector:
+    app: url-shorten-mongodb
+    component: database
+  ports:
+  - port: 27017
+    targetPort: 27017
+    protocol: TCP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: media-mongodb
+  namespace: default
+  labels:
+    app: media-mongodb
+    component: database
+spec:
+  type: ClusterIP
+  selector:
+    app: media-mongodb
+    component: database
+  ports:
+  - port: 27017
+    targetPort: 27017
+    protocol: TCP
+
+# Redis Services
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: social-graph-redis
+  namespace: default
+  labels:
+    app: social-graph-redis
+    component: cache
+spec:
+  type: ClusterIP
+  selector:
+    app: social-graph-redis
+    component: cache
+  ports:
+  - port: 6379
+    targetPort: 6379
+    protocol: TCP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: home-timeline-redis
+  namespace: default
+  labels:
+    app: home-timeline-redis
+    component: cache
+spec:
+  type: ClusterIP
+  selector:
+    app: home-timeline-redis
+    component: cache
+  ports:
+  - port: 6379
+    targetPort: 6379
+    protocol: TCP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-timeline-redis
+  namespace: default
+  labels:
+    app: user-timeline-redis
+    component: cache
+spec:
+  type: ClusterIP
+  selector:
+    app: user-timeline-redis
+    component: cache
+  ports:
+  - port: 6379
+    targetPort: 6379
+    protocol: TCP
+
+# Memcached Services
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-memcached
+  namespace: default
+  labels:
+    app: user-memcached
+    component: cache
+spec:
+  type: ClusterIP
+  selector:
+    app: user-memcached
+    component: cache
+  ports:
+  - port: 11211
+    targetPort: 11211
+    protocol: TCP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: post-storage-memcached
+  namespace: default
+  labels:
+    app: post-storage-memcached
+    component: cache
+spec:
+  type: ClusterIP
+  selector:
+    app: post-storage-memcached
+    component: cache
+  ports:
+  - port: 11211
+    targetPort: 11211
+    protocol: TCP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: url-shorten-memcached
+  namespace: default
+  labels:
+    app: url-shorten-memcached
+    component: cache
+spec:
+  type: ClusterIP
+  selector:
+    app: url-shorten-memcached
+    component: cache
+  ports:
+  - port: 11211
+    targetPort: 11211
+    protocol: TCP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: media-memcached
+  namespace: default
+  labels:
+    app: media-memcached
+    component: cache
+spec:
+  type: ClusterIP
+  selector:
+    app: media-memcached
+    component: cache
+  ports:
+  - port: 11211
+    targetPort: 11211
+    protocol: TCP
+

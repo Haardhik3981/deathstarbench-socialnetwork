@@ -1,0 +1,64 @@
+# Kubernetes Deployment for Text Service (DeathStarBench)
+#
+# WHAT THIS DOES:
+# Processes text content in posts (e.g., extracting mentions, hashtags).
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: text-service-deployment
+  namespace: default
+  labels:
+    app: text-service
+    component: backend
+    microservice: deathstarbench
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: text-service
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: text-service
+        component: backend
+        microservice: deathstarbench
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      containers:
+      - name: text-service
+        image: deathstarbench/social-network-microservices:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/social-network-microservices/build/TextService"]
+        ports:
+        - containerPort: 9090
+          name: thrift
+          protocol: TCP
+        env:
+        - name: SERVICE_NAME
+          value: "text-service"
+        volumeMounts:
+        - name: config
+          mountPath: /social-network-microservices/config
+          readOnly: true
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+      volumes:
+      - name: config
+        configMap:
+          name: deathstarbench-config
+      restartPolicy: Always
+

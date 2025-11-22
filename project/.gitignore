@@ -1,0 +1,42 @@
+# Git ignore file for the project
+#
+# This file tells Git which files and directories to ignore
+# (not track in version control)
+
+# k6 test results
+k6-results/
+*.json
+*.txt
+
+# Kubernetes secrets (should never be committed)
+*secret*.yaml
+*secret*.yml
+
+# Environment files
+.env
+.env.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
+*.bak
+
+# Docker build context (if you copy DeathStarBench here)
+deathstarbench/
+DeathStarBench/
+
+# Local test data
+test-data/
+local/
+

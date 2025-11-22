@@ -1,0 +1,124 @@
+# Redis Deployments for DeathStarBench
+#
+# WHAT THIS DOES:
+# Creates Redis instances for caching. DeathStarBench uses multiple Redis instances:
+# - social-graph-redis: Caches social graph data
+# - home-timeline-redis: Caches home timeline data
+# - user-timeline-redis: Caches user timeline data
+
+# Social Graph Redis
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: social-graph-redis-deployment
+  namespace: default
+  labels:
+    app: social-graph-redis
+    component: cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: social-graph-redis
+      component: cache
+  template:
+    metadata:
+      labels:
+        app: social-graph-redis
+        component: cache
+    spec:
+      containers:
+      - name: redis
+        image: redis:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 6379
+          name: redis
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      restartPolicy: Always
+
+---
+# Home Timeline Redis
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: home-timeline-redis-deployment
+  namespace: default
+  labels:
+    app: home-timeline-redis
+    component: cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: home-timeline-redis
+      component: cache
+  template:
+    metadata:
+      labels:
+        app: home-timeline-redis
+        component: cache
+    spec:
+      containers:
+      - name: redis
+        image: redis:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 6379
+          name: redis
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      restartPolicy: Always
+
+---
+# User Timeline Redis
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-timeline-redis-deployment
+  namespace: default
+  labels:
+    app: user-timeline-redis
+    component: cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-timeline-redis
+      component: cache
+  template:
+    metadata:
+      labels:
+        app: user-timeline-redis
+        component: cache
+    spec:
+      containers:
+      - name: redis
+        image: redis:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 6379
+          name: redis
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      restartPolicy: Always
+

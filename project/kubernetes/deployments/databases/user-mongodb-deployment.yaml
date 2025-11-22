@@ -1,0 +1,63 @@
+# MongoDB Deployment for User Service (DeathStarBench)
+#
+# WHAT THIS DOES:
+# Provides MongoDB database for the User service to store user data.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-mongodb-deployment
+  namespace: default
+  labels:
+    app: user-mongodb
+    component: database
+spec:
+  replicas: 1  # MongoDB typically runs as single instance or replica set
+  selector:
+    matchLabels:
+      app: user-mongodb
+      component: database
+  template:
+    metadata:
+      labels:
+        app: user-mongodb
+        component: database
+    spec:
+      containers:
+      - name: mongodb
+        image: mongo:4.4.6
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 27017
+          name: mongodb
+          protocol: TCP
+        volumeMounts:
+        - name: mongodb-data
+          mountPath: /data/db
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+      volumes:
+      - name: mongodb-data
+        persistentVolumeClaim:
+          claimName: user-mongodb-pvc
+      restartPolicy: Always
+
+---
+# PersistentVolumeClaim for User MongoDB
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: user-mongodb-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+

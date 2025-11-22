@@ -1,0 +1,105 @@
+# Kubernetes Deployment for Jaeger (DeathStarBench)
+#
+# WHAT THIS DOES:
+# Jaeger is a distributed tracing system. DeathStarBench uses it to trace requests
+# across microservices, helping with debugging and performance analysis.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger-deployment
+  namespace: default
+  labels:
+    app: jaeger
+    component: tracing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jaeger
+      component: tracing
+  template:
+    metadata:
+      labels:
+        app: jaeger
+        component: tracing
+    spec:
+      containers:
+      - name: jaeger
+        image: jaegertracing/all-in-one:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 16686
+          name: ui
+          protocol: TCP
+        - containerPort: 5775
+          name: zipkin-thrift
+          protocol: UDP
+        - containerPort: 6831
+          name: jaeger-thrift
+          protocol: UDP
+        - containerPort: 6832
+          name: jaeger-thrift-http
+          protocol: UDP
+        - containerPort: 5778
+          name: configs
+          protocol: TCP
+        - containerPort: 14268
+          name: jaeger-http
+          protocol: TCP
+        - containerPort: 9411
+          name: zipkin-http
+          protocol: TCP
+        env:
+        - name: COLLECTOR_ZIPKIN_HTTP_PORT
+          value: "9411"
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+      restartPolicy: Always
+
+---
+# Service for Jaeger
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-agent
+  namespace: default
+  labels:
+    app: jaeger
+    component: tracing
+spec:
+  type: ClusterIP
+  ports:
+  - port: 16686
+    targetPort: 16686
+    name: ui
+  - port: 5775
+    targetPort: 5775
+    name: zipkin-thrift
+    protocol: UDP
+  - port: 6831
+    targetPort: 6831
+    name: jaeger-thrift
+    protocol: UDP
+  - port: 6832
+    targetPort: 6832
+    name: jaeger-thrift-http
+    protocol: UDP
+  - port: 5778
+    targetPort: 5778
+    name: configs
+  - port: 14268
+    targetPort: 14268
+    name: jaeger-http
+  - port: 9411
+    targetPort: 9411
+    name: zipkin-http
+  selector:
+    app: jaeger
+    component: tracing
+

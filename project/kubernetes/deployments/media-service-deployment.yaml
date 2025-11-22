@@ -1,0 +1,64 @@
+# Kubernetes Deployment for Media Service (DeathStarBench)
+#
+# WHAT THIS DOES:
+# Handles media uploads and storage. Connects to media-mongodb and media-memcached.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: media-service-deployment
+  namespace: default
+  labels:
+    app: media-service
+    component: backend
+    microservice: deathstarbench
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: media-service
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: media-service
+        component: backend
+        microservice: deathstarbench
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      containers:
+      - name: media-service
+        image: deathstarbench/social-network-microservices:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/social-network-microservices/build/MediaService"]
+        ports:
+        - containerPort: 9090
+          name: thrift
+          protocol: TCP
+        env:
+        - name: SERVICE_NAME
+          value: "media-service"
+        volumeMounts:
+        - name: config
+          mountPath: /social-network-microservices/config
+          readOnly: true
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+      volumes:
+      - name: config
+        configMap:
+          name: deathstarbench-config
+      restartPolicy: Always
+

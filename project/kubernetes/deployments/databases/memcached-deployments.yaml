@@ -1,0 +1,164 @@
+# Memcached Deployments for DeathStarBench
+#
+# WHAT THIS DOES:
+# Creates Memcached instances for caching. DeathStarBench uses:
+# - user-memcached: Caches user data
+# - post-storage-memcached: Caches post storage data
+# - url-shorten-memcached: Caches URL shortening data
+# - media-memcached: Caches media data
+
+# User Memcached
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-memcached-deployment
+  namespace: default
+  labels:
+    app: user-memcached
+    component: cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-memcached
+      component: cache
+  template:
+    metadata:
+      labels:
+        app: user-memcached
+        component: cache
+    spec:
+      containers:
+      - name: memcached
+        image: memcached:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 11211
+          name: memcached
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      restartPolicy: Always
+
+---
+# Post Storage Memcached
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: post-storage-memcached-deployment
+  namespace: default
+  labels:
+    app: post-storage-memcached
+    component: cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: post-storage-memcached
+      component: cache
+  template:
+    metadata:
+      labels:
+        app: post-storage-memcached
+        component: cache
+    spec:
+      containers:
+      - name: memcached
+        image: memcached:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 11211
+          name: memcached
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      restartPolicy: Always
+
+---
+# URL Shorten Memcached
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: url-shorten-memcached-deployment
+  namespace: default
+  labels:
+    app: url-shorten-memcached
+    component: cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: url-shorten-memcached
+      component: cache
+  template:
+    metadata:
+      labels:
+        app: url-shorten-memcached
+        component: cache
+    spec:
+      containers:
+      - name: memcached
+        image: memcached:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 11211
+          name: memcached
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      restartPolicy: Always
+
+---
+# Media Memcached
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: media-memcached-deployment
+  namespace: default
+  labels:
+    app: media-memcached
+    component: cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: media-memcached
+      component: cache
+  template:
+    metadata:
+      labels:
+        app: media-memcached
+        component: cache
+    spec:
+      containers:
+      - name: memcached
+        image: memcached:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 11211
+          name: memcached
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      restartPolicy: Always
+

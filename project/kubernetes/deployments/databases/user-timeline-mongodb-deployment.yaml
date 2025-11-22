@@ -1,0 +1,59 @@
+# MongoDB Deployment for User Timeline Service
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-timeline-mongodb-deployment
+  namespace: default
+  labels:
+    app: user-timeline-mongodb
+    component: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-timeline-mongodb
+      component: database
+  template:
+    metadata:
+      labels:
+        app: user-timeline-mongodb
+        component: database
+    spec:
+      containers:
+      - name: mongodb
+        image: mongo:4.4.6
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 27017
+          name: mongodb
+          protocol: TCP
+        volumeMounts:
+        - name: mongodb-data
+          mountPath: /data/db
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+      volumes:
+      - name: mongodb-data
+        persistentVolumeClaim:
+          claimName: user-timeline-mongodb-pvc
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: user-timeline-mongodb-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
