@@ -30,9 +30,9 @@ spec:
     kind: Deployment
     name: user-service-deployment
   
-  updateMode: "Off"  # Start with Off to see recommendations, then switch to Initial
-  # For experiments, you can use "Initial" to apply recommendations automatically
-  
+  updatePolicy:
+    updateMode: "Off" # "Off" means VPA will only provide recommendations.
+
   resourcePolicy:
     containerPolicies:
     - containerName: user-service
@@ -63,8 +63,9 @@ spec:
     kind: Deployment
     name: user-service-deployment
   
-  updateMode: "Off"
-  
+  updatePolicy:
+    updateMode: "Off"
+
   resourcePolicy:
     containerPolicies:
     - containerName: user-service
@@ -95,8 +96,9 @@ spec:
     kind: Deployment
     name: user-service-deployment
   
-  updateMode: "Off"
-  
+  updatePolicy:
+    updateMode: "Off"
+
   resourcePolicy:
     containerPolicies:
     - containerName: user-service
@@ -126,8 +128,9 @@ spec:
     kind: Deployment
     name: user-service-deployment
   
-  updateMode: "Off"
-  
+  updatePolicy:
+    updateMode: "Off"
+
   resourcePolicy:
     containerPolicies:
     - containerName: user-service
@@ -157,8 +160,9 @@ spec:
     kind: Deployment
     name: user-service-deployment
   
-  updateMode: "Off"
-  
+  updatePolicy:
+    updateMode: "Off"
+
   resourcePolicy:
     containerPolicies:
     - containerName: user-service
@@ -170,4 +174,3 @@ spec:
         memory: 2Gi   # High memory
       controlledResources: ["cpu", "memory"]
       controlledValues: RequestsAndLimits
-

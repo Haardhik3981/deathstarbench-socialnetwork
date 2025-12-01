@@ -43,13 +43,10 @@ spec:
     kind: Deployment
     name: user-service-deployment
   
-  # How VPA should apply recommendations
-  # Options: Off, Initial, Auto, Recreate
-  # - Off: Only provide recommendations (safest, manual review)
-  # - Initial: Set resources when pods are created (good for new deployments)
-  # - Auto: Automatically update resources (requires VPA admission controller)
-  # - Recreate: Recreate pods with new resources (may cause brief downtime)
-  updateMode: "Off"  # Start with Off to see recommendations, then switch to Initial/Auto
+  # The update policy for the VPA.
+  updatePolicy:
+    # "Off" means VPA will only provide recommendations, not automatically apply them.
+    updateMode: "Off"
   
   # Resource policy - constraints on recommendations
   resourcePolicy:
@@ -72,4 +69,3 @@ spec:
       # - Requests: Minimum guaranteed resources
       # - Limits: Maximum allowed resources
       controlledValues: RequestsAndLimits
-

@@ -86,8 +86,22 @@ setup_gcp() {
     gcloud container clusters get-credentials "${GKE_CLUSTER}" --zone "${GKE_ZONE}"
     
     # Configure Docker to use gcloud as a credential helper
-    print_info "Configuring Docker for GCR..."
+    print_info "Configuring Docker for Artifact Registry..."
     gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev"
+    
+    # Create Artifact Registry repository if it doesn't exist
+    print_info "Checking/creating Artifact Registry repository..."
+    if ! gcloud artifacts repositories describe "${ARTIFACT_REPO}" \
+        --location="${GCP_REGION}" \
+        --repository-format=docker &>/dev/null; then
+        print_info "Creating Artifact Registry repository: ${ARTIFACT_REPO}"
+        gcloud artifacts repositories create "${ARTIFACT_REPO}" \
+            --repository-format=docker \
+            --location="${GCP_REGION}" \
+            --description="Docker images for social network microservices"
+    else
+        print_info "Artifact Registry repository already exists: ${ARTIFACT_REPO}"
+    fi
     
     print_info "GCP setup complete!"
 }
@@ -115,16 +129,24 @@ build_and_push_images() {
     # We will pull the pre-built image from Docker Hub, re-tag it for our registry, and push it.
     # This avoids the slow and memory-intensive local build process.
     print_info "Pulling pre-built image from Docker Hub..."
-    docker pull deathstarbench/social-network-microservices:latest
+    if ! docker pull deathstarbench/social-network-microservices:latest; then
+        print_error "Failed to pull image from Docker Hub: deathstarbench/social-network-microservices:latest"
+        print_error "Please check your internet connection and Docker Hub access."
+        exit 1
+    fi
     
     print_info "Re-tagging image for Google Artifact Registry..."
     docker tag deathstarbench/social-network-microservices:latest "${REGISTRY}/social-network-microservices:${IMAGE_TAG}"
     
     print_info "Pushing image to Google Artifact Registry..."
-    docker push "${REGISTRY}/social-network-microservices:${IMAGE_TAG}"
+    if ! docker push "${REGISTRY}/social-network-microservices:${IMAGE_TAG}"; then
+        print_error "Failed to push image to Artifact Registry: ${REGISTRY}/social-network-microservices:${IMAGE_TAG}"
+        print_error "Please check your GCP permissions and Artifact Registry setup."
+        exit 1
+    fi
     
     print_info "Docker images built and pushed!"
-    print_info "Update your Kubernetes YAMLs to use: ${REGISTRY}/social-network-microservices:${IMAGE_TAG}"
+    print_info "Image available at: ${REGISTRY}/social-network-microservices:${IMAGE_TAG}"
 }
 
 # Create namespaces
@@ -158,27 +180,51 @@ deploy_application() {
     
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     
-    # Update image references in deployment files
-    # DeathStarBench uses a unified image, so we need to update it correctly
+    # Create temporary directory for modified YAML files
+    TEMP_DIR=$(mktemp -d)
+    trap "rm -rf ${TEMP_DIR}" EXIT
+    
     print_info "Updating image references in Kubernetes deployment files..."
     
-    # Update the unified microservices image
-    # For macOS, use: sed -i '' "s|image: deathstarbench/social-network-microservices:latest|image: ${REGISTRY}/social-network-microservices:${IMAGE_TAG}|g"
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        # macOS
-        find "${PROJECT_ROOT}/kubernetes/deployments" -name "*.yaml" -type f -exec sed -i '' "s|image: deathstarbench/social-network-microservices:latest|image: ${REGISTRY}/social-network-microservices:${IMAGE_TAG}|g" {} \;
-    else
-        # Linux
-        find "${PROJECT_ROOT}/kubernetes/deployments" -name "*.yaml" -type f -exec sed -i "s|image: deathstarbench/social-network-microservices:latest|image: ${REGISTRY}/social-network-microservices:${IMAGE_TAG}|g" {} \;
-    fi
+    # Copy deployment files to temp directory and update image references
+    # We need to replace both the old Docker Hub reference AND any hardcoded registry paths
+    # Preserve directory structure in temp directory
+    find "${PROJECT_ROOT}/kubernetes/deployments" -name "*.yaml" -type f | while read -r file; do
+        # Get relative path from deployments directory to preserve structure
+        rel_path="${file#${PROJECT_ROOT}/kubernetes/deployments/}"
+        target_dir="${TEMP_DIR}/$(dirname "$rel_path")"
+        mkdir -p "$target_dir"
+        
+        # Skip nginx-thrift-deployment.yaml (uses different image)
+        if [[ "$(basename "$file")" == "nginx-thrift-deployment.yaml" ]]; then
+            cp "$file" "${TEMP_DIR}/${rel_path}"
+        else
+            # Create temp file with updated image references
+            # Replace: Docker Hub reference, hardcoded Artifact Registry paths with any project ID
+            # Pattern matches: us-central1-docker.pkg.dev/<any-project-id>/social-network-images/social-network-microservices:<any-tag>
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                # macOS sed - escape dots and use character class for project ID
+                sed -E \
+                    -e "s|image: deathstarbench/social-network-microservices:latest|image: ${REGISTRY}/social-network-microservices:${IMAGE_TAG}|g" \
+                    -e "s|image: us-central1-docker\.pkg\.dev/[a-zA-Z0-9_-]+/social-network-images/social-network-microservices:[^[:space:]]+|image: ${REGISTRY}/social-network-microservices:${IMAGE_TAG}|g" \
+                    "$file" > "${TEMP_DIR}/${rel_path}"
+            else
+                # Linux sed - escape dots and use character class for project ID
+                sed -E \
+                    -e "s|image: deathstarbench/social-network-microservices:latest|image: ${REGISTRY}/social-network-microservices:${IMAGE_TAG}|g" \
+                    -e "s|image: us-central1-docker\.pkg\.dev/[a-zA-Z0-9_-]+/social-network-images/social-network-microservices:[^[:space:]]+|image: ${REGISTRY}/social-network-microservices:${IMAGE_TAG}|g" \
+                    "$file" > "${TEMP_DIR}/${rel_path}"
+            fi
+        fi
+    done
     
     print_info "Image references updated to use: ${REGISTRY}/social-network-microservices:${IMAGE_TAG}"
     
     # Deploy services first (they're lightweight)
     kubectl apply -f "${PROJECT_ROOT}/kubernetes/services/"
     
-    # Deploy deployments
-    kubectl apply -f "${PROJECT_ROOT}/kubernetes/deployments/"
+    # Deploy deployments from temp directory
+    kubectl apply -f "${TEMP_DIR}/"
     
     # Wait for deployments to be ready
     print_info "Waiting for deployments to be ready..."
@@ -196,8 +242,10 @@ deploy_autoscaling() {
     
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     
-    # Deploy HPA
-    kubectl apply -f "${PROJECT_ROOT}/kubernetes/autoscaling/"
+    # Deploy the main HPA and VPA configurations.
+    # We explicitly apply only the intended files to avoid conflicts from experimental configs.
+    kubectl apply -f "${PROJECT_ROOT}/kubernetes/autoscaling/user-service-hpa.yaml"
+    kubectl apply -f "${PROJECT_ROOT}/kubernetes/autoscaling/user-service-vpa.yaml"
     
     print_info "Autoscaling configurations deployed!"
 }
@@ -218,6 +266,7 @@ deploy_monitoring() {
     
     # Deploy Grafana
     kubectl apply -f "${PROJECT_ROOT}/kubernetes/monitoring/grafana-deployment.yaml"
+    kubectl apply -f "${PROJECT_ROOT}/kubernetes/monitoring/grafana-service.yaml"
     
     # Wait for Grafana to be ready
     print_info "Waiting for Grafana to be ready..."
@@ -250,12 +299,14 @@ main() {
     print_info "Project: ${PROJECT_ID}"
     print_info "Cluster: ${GKE_CLUSTER}"
     print_info "Zone: ${GKE_ZONE}"
+    print_info "Registry: ${REGISTRY}"
     
     check_prerequisites
     setup_gcp
     create_namespaces
-    deploy_configs
+    # Build and push images BEFORE deploying configs to ensure image is available
     build_and_push_images
+    deploy_configs
     deploy_application
     deploy_autoscaling
     deploy_monitoring

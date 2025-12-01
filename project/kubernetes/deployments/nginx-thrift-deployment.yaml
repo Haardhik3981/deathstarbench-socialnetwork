@@ -55,29 +55,6 @@ spec:
         - containerPort: 8080
           name: http
           protocol: TCP
-        # Mount volumes for Lua scripts, pages, and configuration
-        # NOTE: These need to be populated from DeathStarBench source
-        volumeMounts:
-        - name: lua-scripts
-          mountPath: /usr/local/openresty/nginx/lua-scripts
-          readOnly: true
-        - name: pages
-          mountPath: /usr/local/openresty/nginx/pages
-          readOnly: true
-        - name: nginx-config
-          mountPath: /usr/local/openresty/nginx/conf/nginx.conf
-          subPath: nginx.conf
-          readOnly: true
-        - name: jaeger-config
-          mountPath: /usr/local/openresty/nginx/jaeger-config.json
-          subPath: jaeger-config.json
-          readOnly: true
-        - name: gen-lua
-          mountPath: /gen-lua
-          readOnly: true
-        - name: lua-thrift
-          mountPath: /usr/local/openresty/lualib/thrift
-          readOnly: true
         resources:
           requests:
             cpu: 200m
@@ -98,24 +75,28 @@ spec:
             port: 8080
           initialDelaySeconds: 10
           periodSeconds: 10
+        # Mount configuration files from ConfigMap
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+          readOnly: true
+        - name: jaeger-config
+          mountPath: /etc/nginx/jaeger-config.json
+          subPath: jaeger-config.json
+          readOnly: true
+        - name: service-config
+          mountPath: /etc/nginx/service-config.json
+          subPath: service-config.json
+          readOnly: true
       volumes:
-      # TODO: These volumes need to be populated from DeathStarBench source
-      # Option 1: Use ConfigMaps (for small files)
-      # Option 2: Use PersistentVolumes with init containers
-      # Option 3: Use a sidecar container that syncs files
-      - name: lua-scripts
-        emptyDir: {}  # Replace with ConfigMap or PersistentVolume
-      - name: pages
-        emptyDir: {}  # Replace with ConfigMap
       - name: nginx-config
         configMap:
-          name: nginx-thrift-config
+          name: deathstarbench-config
       - name: jaeger-config
         configMap:
-          name: jaeger-config
-      - name: gen-lua
-        emptyDir: {}  # Replace with ConfigMap
-      - name: lua-thrift
-        emptyDir: {}  # Replace with ConfigMap
+          name: deathstarbench-config
+      - name: service-config
+        configMap:
+          name: deathstarbench-config
       restartPolicy: Always
-
