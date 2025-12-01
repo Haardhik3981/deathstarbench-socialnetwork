@@ -22,11 +22,13 @@
 set -e  # Exit on any error
 
 # Configuration
-PROJECT_ID="${GCP_PROJECT_ID:-your-project-id}"
-GKE_CLUSTER="${GKE_CLUSTER:-your-cluster-name}"
+PROJECT_ID=$(gcloud config get-value project) # Automatically get project ID
+GKE_CLUSTER="${GKE_CLUSTER:-social-network-cluster}"
 GKE_ZONE="${GKE_ZONE:-us-central1-a}"
+GCP_REGION="us-central1" # Region for Artifact Registry
+ARTIFACT_REPO="social-network-images"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
-REGISTRY="gcr.io/${PROJECT_ID}"
+REGISTRY="${GCP_REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -85,7 +87,7 @@ setup_gcp() {
     
     # Configure Docker to use gcloud as a credential helper
     print_info "Configuring Docker for GCR..."
-    gcloud auth configure-docker
+    gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev"
     
     print_info "GCP setup complete!"
 }
@@ -97,19 +99,32 @@ build_and_push_images() {
     # Get the project root directory (parent of scripts directory)
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     
-    # Build and push Nginx image
-    print_info "Building Nginx image..."
-    docker build -t "${REGISTRY}/nginx:${IMAGE_TAG}" "${PROJECT_ROOT}/docker/nginx"
-    docker push "${REGISTRY}/nginx:${IMAGE_TAG}"
+    # Point to the actual DeathStarBench source directory
+    # This assumes project/ and socialNetwork/ are siblings in the same parent directory
+    DSB_ROOT="${PROJECT_ROOT}/../socialNetwork"
     
-    # Build and push User Service image
-    # NOTE: You'll need to adapt this based on your actual service structure
-    # For DeathStarBench, you'll need to clone the repo and build from there
-    print_warn "User service image build skipped - adapt this for your actual services"
-    # docker build -t "${REGISTRY}/user-service:${IMAGE_TAG}" "${PROJECT_ROOT}/docker/user"
-    # docker push "${REGISTRY}/user-service:${IMAGE_TAG}"
+    if [ ! -f "${DSB_ROOT}/Dockerfile" ]; then
+        print_error "DeathStarBench source not found at ${DSB_ROOT}"
+        print_error "Expected to find: ${DSB_ROOT}/Dockerfile"
+        print_info "Make sure socialNetwork/ directory exists as a sibling to project/"
+        exit 1
+    fi
+    
+    print_info "Found DeathStarBench source at: ${DSB_ROOT}"
+    
+    # We will pull the pre-built image from Docker Hub, re-tag it for our registry, and push it.
+    # This avoids the slow and memory-intensive local build process.
+    print_info "Pulling pre-built image from Docker Hub..."
+    docker pull deathstarbench/social-network-microservices:latest
+    
+    print_info "Re-tagging image for Google Artifact Registry..."
+    docker tag deathstarbench/social-network-microservices:latest "${REGISTRY}/social-network-microservices:${IMAGE_TAG}"
+    
+    print_info "Pushing image to Google Artifact Registry..."
+    docker push "${REGISTRY}/social-network-microservices:${IMAGE_TAG}"
     
     print_info "Docker images built and pushed!"
+    print_info "Update your Kubernetes YAMLs to use: ${REGISTRY}/social-network-microservices:${IMAGE_TAG}"
 }
 
 # Create namespaces
@@ -131,9 +146,8 @@ deploy_configs() {
     # Deploy ConfigMaps
     kubectl apply -f "${PROJECT_ROOT}/kubernetes/configmaps/"
     
-    # Deploy Secrets
-    # NOTE: In production, use proper secret management
-    kubectl apply -f "${PROJECT_ROOT}/kubernetes/configmaps/database-secret.yaml"
+    # Note: DeathStarBench doesn't use database secrets in the same way
+    # Configuration is in service-config.json ConfigMap
     
     print_info "ConfigMaps and Secrets deployed!"
 }
@@ -145,8 +159,20 @@ deploy_application() {
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     
     # Update image references in deployment files
-    # This is a simple approach - in production, use a templating tool like Helm
-    print_warn "Make sure to update image references in deployment YAML files!"
+    # DeathStarBench uses a unified image, so we need to update it correctly
+    print_info "Updating image references in Kubernetes deployment files..."
+    
+    # Update the unified microservices image
+    # For macOS, use: sed -i '' "s|image: deathstarbench/social-network-microservices:latest|image: ${REGISTRY}/social-network-microservices:${IMAGE_TAG}|g"
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS
+        find "${PROJECT_ROOT}/kubernetes/deployments" -name "*.yaml" -type f -exec sed -i '' "s|image: deathstarbench/social-network-microservices:latest|image: ${REGISTRY}/social-network-microservices:${IMAGE_TAG}|g" {} \;
+    else
+        # Linux
+        find "${PROJECT_ROOT}/kubernetes/deployments" -name "*.yaml" -type f -exec sed -i "s|image: deathstarbench/social-network-microservices:latest|image: ${REGISTRY}/social-network-microservices:${IMAGE_TAG}|g" {} \;
+    fi
+    
+    print_info "Image references updated to use: ${REGISTRY}/social-network-microservices:${IMAGE_TAG}"
     
     # Deploy services first (they're lightweight)
     kubectl apply -f "${PROJECT_ROOT}/kubernetes/services/"
@@ -156,7 +182,10 @@ deploy_application() {
     
     # Wait for deployments to be ready
     print_info "Waiting for deployments to be ready..."
-    kubectl wait --for=condition=available --timeout=300s deployment/nginx-deployment || true
+    # Wait for nginx-thrift (the gateway)
+    kubectl wait --for=condition=available --timeout=300s deployment/nginx-thrift-deployment || true
+    # Wait for a few key services
+    kubectl wait --for=condition=available --timeout=300s deployment/user-service-deployment || true
     
     print_info "Application services deployed!"
 }
@@ -201,9 +230,9 @@ deploy_monitoring() {
 show_endpoints() {
     print_info "Service endpoints:"
     
-    # Get Nginx LoadBalancer IP
-    NGINX_IP=$(kubectl get service nginx-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "Pending...")
-    print_info "Nginx (Application): http://${NGINX_IP}"
+    # Get Nginx-Thrift LoadBalancer IP
+    NGINX_IP=$(kubectl get service nginx-thrift-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "Pending...")
+    print_info "Nginx-Thrift (Application Gateway): http://${NGINX_IP}:8080"
     
     # Get Grafana LoadBalancer IP
     GRAFANA_IP=$(kubectl get service grafana -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "Pending...")
@@ -243,4 +272,3 @@ main() {
 
 # Run main function
 main
-

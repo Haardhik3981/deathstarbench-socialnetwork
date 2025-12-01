@@ -21,8 +21,12 @@ K6_TESTS_DIR="${PROJECT_ROOT}/k6-tests"
 RESULTS_DIR="${PROJECT_ROOT}/k6-results"
 
 # Configuration
-BASE_URL="${BASE_URL:-http://localhost:8080}"
+# BASE_URL can be set manually, or we'll try to detect it
+# For local: http://localhost:8080
+# For GKE: http://<loadbalancer-ip>:8080
+BASE_URL="${BASE_URL}"
 TEST_TYPE="${1:-constant-load}"
+ENVIRONMENT="${ENVIRONMENT:-auto}"  # auto, local, gke
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -47,6 +51,56 @@ check_k6() {
         print_error "k6 is not installed."
         print_info "Install from: https://k6.io/docs/getting-started/installation/"
         exit 1
+    fi
+}
+
+# Detect and set BASE_URL based on environment
+detect_base_url() {
+    if [ -n "${BASE_URL}" ]; then
+        print_info "Using provided BASE_URL: ${BASE_URL}"
+        return
+    fi
+    
+    # Try to detect environment
+    if [ "${ENVIRONMENT}" = "auto" ]; then
+        # Check if kubectl is available and configured
+        if command -v kubectl &> /dev/null && kubectl cluster-info &> /dev/null 2>&1; then
+            ENVIRONMENT="gke"
+            print_info "Detected Kubernetes cluster, assuming GKE environment"
+        else
+            ENVIRONMENT="local"
+            print_info "No Kubernetes cluster detected, assuming local environment"
+        fi
+    fi
+    
+    if [ "${ENVIRONMENT}" = "gke" ]; then
+        print_info "Attempting to get LoadBalancer IP from Kubernetes..."
+        
+        # Try to get nginx-thrift service LoadBalancer IP
+        NGINX_IP=$(kubectl get service nginx-thrift-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+        
+        if [ -z "${NGINX_IP}" ] || [ "${NGINX_IP}" = "null" ]; then
+            # Try legacy nginx-service name
+            NGINX_IP=$(kubectl get service nginx-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+        fi
+        
+        if [ -n "${NGINX_IP}" ] && [ "${NGINX_IP}" != "null" ]; then
+            BASE_URL="http://${NGINX_IP}:8080"
+            print_info "Found LoadBalancer IP: ${BASE_URL}"
+        else
+            print_warn "Could not find LoadBalancer IP. Service may still be provisioning."
+            print_info "You can:"
+            print_info "  1. Wait a few minutes and run again"
+            print_info "  2. Set BASE_URL manually: BASE_URL=http://<ip>:8080 $0 ${TEST_TYPE}"
+            print_info "  3. Use port-forward: kubectl port-forward svc/nginx-thrift-service 8080:8080"
+            print_info "     Then set: BASE_URL=http://localhost:8080 $0 ${TEST_TYPE}"
+            exit 1
+        fi
+    else
+        # Local environment
+        BASE_URL="http://localhost:8080"
+        print_info "Using local BASE_URL: ${BASE_URL}"
+        print_info "Make sure docker-compose is running in socialNetwork/ directory"
     fi
 }
 
@@ -117,6 +171,7 @@ run_all_tests() {
 # Main
 main() {
     check_k6
+    detect_base_url
     create_results_dir
     
     case "${TEST_TYPE}" in
@@ -139,7 +194,18 @@ main() {
             echo "  all            - Run all tests (except endurance)"
             echo ""
             echo "Environment variables:"
-            echo "  BASE_URL - Target URL (default: http://localhost:8080)"
+            echo "  BASE_URL - Target URL (auto-detected if not set)"
+            echo "  ENVIRONMENT - Environment type: auto (default), local, or gke"
+            echo ""
+            echo "Examples:"
+            echo "  # Local testing (docker-compose)"
+            echo "  ENVIRONMENT=local $0 constant-load"
+            echo ""
+            echo "  # GKE testing (auto-detect LoadBalancer IP)"
+            echo "  ENVIRONMENT=gke $0 constant-load"
+            echo ""
+            echo "  # Manual URL"
+            echo "  BASE_URL=http://1.2.3.4:8080 $0 constant-load"
             exit 1
             ;;
     esac

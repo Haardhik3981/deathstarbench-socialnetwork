@@ -43,7 +43,7 @@ spec:
       containers:
       - name: user-service
         # DeathStarBench uses a single image with different entrypoints
-        image: deathstarbench/social-network-microservices:latest
+        image: us-central1-docker.pkg.dev/cse239-479821/social-network-images/social-network-microservices:latest
         imagePullPolicy: IfNotPresent
         
         # Entrypoint determines which service runs from the unified image

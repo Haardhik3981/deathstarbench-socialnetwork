@@ -39,7 +39,7 @@ spec:
           name: jaeger-thrift
           protocol: UDP
         - containerPort: 6832
-          name: jaeger-thrift-http
+          name: jaeger-thrift2
           protocol: UDP
         - containerPort: 5778
           name: configs
@@ -88,7 +88,7 @@ spec:
     protocol: UDP
   - port: 6832
     targetPort: 6832
-    name: jaeger-thrift-http
+    name: jaeger-thrift2
     protocol: UDP
   - port: 5778
     targetPort: 5778

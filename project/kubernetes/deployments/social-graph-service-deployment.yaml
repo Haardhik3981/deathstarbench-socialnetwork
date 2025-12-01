@@ -36,7 +36,7 @@ spec:
     spec:
       containers:
       - name: social-graph-service
-        image: deathstarbench/social-network-microservices:latest
+        image: us-central1-docker.pkg.dev/cse239-479821/social-network-images/social-network-microservices:latest
         imagePullPolicy: IfNotPresent
         command: ["/social-network-microservices/build/SocialGraphService"]
         ports:

@@ -1,9 +1,9 @@
-# Horizontal Pod Autoscaler (HPA) for User Service
+# Horizontal Pod Autoscaler (HPA) for User Service - Resource-Based (Baseline)
 #
 # WHAT THIS DOES:
 # HPA automatically increases or decreases the number of pod replicas based on
-# observed metrics like CPU usage, memory usage, or custom metrics. This ensures
-# your application can handle varying loads without manual intervention.
+# CPU and memory utilization. This is the baseline configuration for comparison
+# with latency-based autoscaling.
 #
 # KEY CONCEPTS:
 # - minReplicas: Minimum number of pods to always keep running
@@ -12,14 +12,18 @@
 # - scaleDown/scaleUp: Policies that control how quickly scaling happens
 #
 # HOW IT WORKS:
-# 1. HPA continuously monitors metrics (CPU, memory, custom metrics)
+# 1. HPA continuously monitors CPU and memory metrics
 # 2. If average metric exceeds target, it increases replicas
 # 3. If average metric is below target, it decreases replicas
 # 4. Scaling decisions respect min/max replica limits
 #
 # WHY WE NEED IT:
-# Traffic to web services varies throughout the day. HPA ensures you have enough
-# resources during peak times and reduces costs during low-traffic periods.
+# This is the baseline configuration for performance/cost experiments.
+# Compare this with latency-based HPA to see which maintains <500ms latency
+# more effectively while minimizing cost.
+#
+# NOTE: For latency-based autoscaling, use user-service-hpa-latency.yaml instead.
+# This file is kept for baseline comparison experiments.
 
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
