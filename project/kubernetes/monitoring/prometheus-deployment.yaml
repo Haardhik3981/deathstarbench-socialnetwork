@@ -49,11 +49,11 @@ spec:
         
         resources:
           requests:
-            cpu: 500m
-            memory: 1Gi
+            cpu: 100m  # Reduced from 500m for development/testing
+            memory: 256Mi  # Reduced from 1Gi for development/testing
           limits:
-            cpu: 2000m
-            memory: 4Gi
+            cpu: 1000m  # Reduced from 2000m
+            memory: 2Gi  # Reduced from 4Gi
         
         volumeMounts:
         - name: prometheus-config
@@ -115,7 +115,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 20Gi  # Adjust based on retention period and scrape frequency
+      storage: 5Gi  # Reduced from 20Gi for development/testing
 
 ---
 # ServiceAccount for Prometheus

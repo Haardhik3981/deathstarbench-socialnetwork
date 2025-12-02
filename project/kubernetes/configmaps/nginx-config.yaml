@@ -214,7 +214,7 @@ data:
   nginx.conf: |
     # TODO: Copy actual nginx.conf from DeathStarBench source
   
-  # Placeholder for Jaeger config
+  # Placeholder for Jaeger config (JSON for nginx)
   # This needs to be copied from deathstarbench-socialnetwork/socialNetwork/nginx-web-server/jaeger-config.json
   jaeger-config.json: |
     {
@@ -227,4 +227,17 @@ data:
         "localAgentHostPort": "jaeger-agent:6831"
       }
     }
+  
+  # Jaeger config YAML file - REQUIRED by all microservices
+  # Services look for this at config/jaeger-config.yml relative to their working directory
+  jaeger-config.yml: |
+    disabled: false
+    reporter:
+      logSpans: false
+      localAgentHostPort: "jaeger-agent:6831"
+      queueSize: 1000000
+      bufferFlushInterval: 10
+    sampler:
+      type: "probabilistic"
+      param: 0.1
 

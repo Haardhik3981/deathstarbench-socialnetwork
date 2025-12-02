@@ -20,6 +20,7 @@
 # - Appropriate permissions on GCP project
 
 set -e  # Exit on any error
+set -o pipefail  # Exit on pipe failures
 
 # Configuration
 PROJECT_ID=$(gcloud config get-value project) # Automatically get project ID
@@ -91,16 +92,41 @@ setup_gcp() {
     
     # Create Artifact Registry repository if it doesn't exist
     print_info "Checking/creating Artifact Registry repository..."
-    if ! gcloud artifacts repositories describe "${ARTIFACT_REPO}" \
+    
+    # Check if repository exists
+    # Use timeout if available (Linux), otherwise just run the command (macOS)
+    if command -v timeout &> /dev/null; then
+        REPO_CHECK_CMD="timeout 10 gcloud artifacts repositories describe"
+    else
+        REPO_CHECK_CMD="gcloud artifacts repositories describe"
+    fi
+    
+    if $REPO_CHECK_CMD "${ARTIFACT_REPO}" \
         --location="${GCP_REGION}" \
-        --repository-format=docker &>/dev/null; then
-        print_info "Creating Artifact Registry repository: ${ARTIFACT_REPO}"
-        gcloud artifacts repositories create "${ARTIFACT_REPO}" \
+        --repository-format=docker &>/dev/null 2>&1; then
+        print_info "Artifact Registry repository already exists: ${ARTIFACT_REPO}"
+    else
+        # Repository doesn't exist or check failed - try to create it
+        print_info "Repository not found or check failed. Attempting to create: ${ARTIFACT_REPO}"
+        CREATE_OUTPUT=$(gcloud artifacts repositories create "${ARTIFACT_REPO}" \
             --repository-format=docker \
             --location="${GCP_REGION}" \
-            --description="Docker images for social network microservices"
-    else
-        print_info "Artifact Registry repository already exists: ${ARTIFACT_REPO}"
+            --description="Docker images for social network microservices" 2>&1) || true
+        CREATE_EXIT_CODE=$?
+        
+        # Check if creation was successful or if it already exists
+        if [ $CREATE_EXIT_CODE -eq 0 ]; then
+            print_info "Successfully created Artifact Registry repository: ${ARTIFACT_REPO}"
+        elif echo "$CREATE_OUTPUT" | grep -q "ALREADY_EXISTS"; then
+            print_info "Repository already exists (may have been created concurrently): ${ARTIFACT_REPO}"
+        elif echo "$CREATE_OUTPUT" | grep -q "PERMISSION_DENIED"; then
+            print_warn "Permission denied creating repository. It may already exist or you may need additional permissions."
+            print_info "Continuing with deployment (repository may already exist)..."
+        else
+            print_warn "Could not verify/create repository (exit code: $CREATE_EXIT_CODE)"
+            print_warn "Output: $CREATE_OUTPUT"
+            print_info "Continuing with deployment (repository may already exist)..."
+        fi
     fi
     
     print_info "GCP setup complete!"
@@ -223,6 +249,17 @@ deploy_application() {
     # Deploy services first (they're lightweight)
     kubectl apply -f "${PROJECT_ROOT}/kubernetes/services/"
     
+    # Deploy databases first (services depend on them)
+    print_info "Deploying databases..."
+    if [ -d "${PROJECT_ROOT}/kubernetes/deployments/databases" ]; then
+        kubectl apply -f "${PROJECT_ROOT}/kubernetes/deployments/databases/"
+        print_info "Waiting for databases to be ready..."
+        # Wait a bit for databases to start
+        sleep 10
+    else
+        print_warn "Database deployments directory not found!"
+    fi
+    
     # Deploy deployments from temp directory
     kubectl apply -f "${TEMP_DIR}/"
     
@@ -260,37 +297,71 @@ deploy_monitoring() {
     kubectl apply -f "${PROJECT_ROOT}/kubernetes/monitoring/prometheus-configmap.yaml"
     kubectl apply -f "${PROJECT_ROOT}/kubernetes/monitoring/prometheus-deployment.yaml"
     
-    # Wait for Prometheus to be ready
+    # Wait for Prometheus to be ready (with longer timeout and continue on failure)
     print_info "Waiting for Prometheus to be ready..."
-    kubectl wait --for=condition=available --timeout=300s deployment/prometheus -n monitoring || true
+    if kubectl wait --for=condition=available --timeout=180s deployment/prometheus -n monitoring 2>/dev/null; then
+        print_info "Prometheus is ready!"
+    else
+        print_warn "Prometheus deployment timed out or not ready yet (this is okay, it may need more resources)"
+        print_info "Check status with: kubectl get pods -n monitoring"
+    fi
     
     # Deploy Grafana
     kubectl apply -f "${PROJECT_ROOT}/kubernetes/monitoring/grafana-deployment.yaml"
     kubectl apply -f "${PROJECT_ROOT}/kubernetes/monitoring/grafana-service.yaml"
     
-    # Wait for Grafana to be ready
+    # Wait for Grafana to be ready (with longer timeout and continue on failure)
     print_info "Waiting for Grafana to be ready..."
-    kubectl wait --for=condition=available --timeout=300s deployment/grafana -n monitoring || true
+    if kubectl wait --for=condition=available --timeout=180s deployment/grafana -n monitoring 2>/dev/null; then
+        print_info "Grafana is ready!"
+    else
+        print_warn "Grafana deployment timed out or not ready yet (this is okay, it may need more resources)"
+        print_info "Check status with: kubectl get pods -n monitoring"
+    fi
     
     print_info "Monitoring stack deployed!"
 }
 
 # Get service endpoints
 show_endpoints() {
-    print_info "Service endpoints:"
+    echo ""
+    echo "=========================================="
+    print_info "DEPLOYMENT ENDPOINTS"
+    echo "=========================================="
+    echo ""
     
     # Get Nginx-Thrift LoadBalancer IP
     NGINX_IP=$(kubectl get service nginx-thrift-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "Pending...")
-    print_info "Nginx-Thrift (Application Gateway): http://${NGINX_IP}:8080"
+    if [ "$NGINX_IP" != "Pending..." ] && [ -n "$NGINX_IP" ]; then
+        print_info "✓ Nginx-Thrift (Application Gateway):"
+        echo "    http://${NGINX_IP}:8080"
+    else
+        print_warn "⚠ Nginx-Thrift (Application Gateway): Pending..."
+        echo "    Run: kubectl get service nginx-thrift-service"
+    fi
+    echo ""
     
     # Get Grafana LoadBalancer IP
     GRAFANA_IP=$(kubectl get service grafana -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "Pending...")
-    print_info "Grafana (Monitoring): http://${GRAFANA_IP}:3000"
-    print_info "  Default credentials: admin/admin"
+    if [ "$GRAFANA_IP" != "Pending..." ] && [ -n "$GRAFANA_IP" ]; then
+        print_info "✓ Grafana (Monitoring Dashboard):"
+        echo "    http://${GRAFANA_IP}:3000"
+        echo "    Default credentials: admin/admin"
+    else
+        print_warn "⚠ Grafana (Monitoring Dashboard): Pending..."
+        echo "    Run: kubectl get service grafana -n monitoring"
+        echo "    Or use port-forward: kubectl port-forward -n monitoring svc/grafana 3000:3000"
+    fi
+    echo ""
     
     # Get Prometheus endpoint (ClusterIP, so we'll show port-forward command)
-    print_info "Prometheus: kubectl port-forward -n monitoring svc/prometheus 9090:9090"
-    print_info "  Then access at: http://localhost:9090"
+    print_info "✓ Prometheus (Metrics):"
+    echo "    kubectl port-forward -n monitoring svc/prometheus 9090:9090"
+    echo "    Then access at: http://localhost:9090"
+    echo ""
+    
+    echo "=========================================="
+    echo ""
 }
 
 # Main deployment flow

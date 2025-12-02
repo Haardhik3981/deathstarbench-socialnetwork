@@ -26,14 +26,14 @@ metadata:
 spec:
   # Number of pod replicas to run
   # Having multiple replicas provides high availability - if one pod fails, others continue
-  replicas: 2
+  replicas: 1  # Reduced from 2 for development/testing to save CPU resources
   
   # Strategy for updating pods
   strategy:
     type: RollingUpdate
     rollingUpdate:
       # Maximum number of pods that can be unavailable during update
-      maxUnavailable: 1
+      maxUnavailable: 0  # With 1 replica, we can't allow unavailability
       # Maximum number of new pods that can be created during update
       maxSurge: 1
   
