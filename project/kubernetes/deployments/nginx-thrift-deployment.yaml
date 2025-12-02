@@ -79,9 +79,9 @@ spec:
         #   periodSeconds: 10
         # Mount configuration files from ConfigMaps
         volumeMounts:
-        # Main nginx configuration file
+        # Main nginx configuration file (FIXED: correct path for OpenResty)
         - name: nginx-config
-          mountPath: /etc/nginx/nginx.conf
+          mountPath: /usr/local/openresty/nginx/conf/nginx.conf
           subPath: nginx.conf
           readOnly: true
         # Jaeger tracing configuration (nginx expects it here)
@@ -103,9 +103,9 @@ spec:
           mountPath: /usr/local/openresty/nginx/pages
           readOnly: true
         # Generated Lua files from Thrift (needed for service clients)
-        # Mount to a directory in lua_package_path
+        # Mount to /gen-lua (nginx expects it here based on docker-compose and helm charts)
         - name: gen-lua
-          mountPath: /usr/local/openresty/nginx/gen-lua
+          mountPath: /gen-lua
           readOnly: true
       volumes:
       # Main configuration ConfigMap
