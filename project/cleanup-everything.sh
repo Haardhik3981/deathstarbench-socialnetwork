@@ -149,24 +149,99 @@ else
     print_info "No ReplicaSets found"
 fi
 
+# Step 7: Clean up monitoring namespace (if it exists)
+print_section "Step 7: Cleaning Up Monitoring Namespace"
+if kubectl get namespace monitoring &>/dev/null; then
+    print_info "Found monitoring namespace, cleaning up resources..."
+    
+    # Delete deployments in monitoring namespace
+    MON_DEPLOYMENTS=$(kubectl get deployment -n monitoring -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
+    if [ -n "$MON_DEPLOYMENTS" ]; then
+        for deploy in $MON_DEPLOYMENTS; do
+            print_info "  Deleting deployment: monitoring/$deploy"
+            kubectl delete deployment "$deploy" -n monitoring --grace-period=30 2>/dev/null || true
+        done
+    fi
+    
+    # Delete services in monitoring namespace
+    MON_SERVICES=$(kubectl get svc -n monitoring -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
+    if [ -n "$MON_SERVICES" ]; then
+        for svc in $MON_SERVICES; do
+            print_info "  Deleting service: monitoring/$svc"
+            kubectl delete svc "$svc" -n monitoring 2>/dev/null || true
+        done
+    fi
+    
+    # Delete ConfigMaps in monitoring namespace
+    MON_CONFIGMAPS=$(kubectl get configmap -n monitoring -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | grep -v "kube-root-ca.crt" || echo "")
+    if [ -n "$MON_CONFIGMAPS" ]; then
+        for cm in $MON_CONFIGMAPS; do
+            print_info "  Deleting ConfigMap: monitoring/$cm"
+            kubectl delete configmap "$cm" -n monitoring 2>/dev/null || true
+        done
+    fi
+    
+    # Delete PVCs in monitoring namespace
+    MON_PVCS=$(kubectl get pvc -n monitoring -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
+    if [ -n "$MON_PVCS" ]; then
+        print_warn "Deleting PVCs in monitoring namespace (this deletes metrics data)..."
+        for pvc in $MON_PVCS; do
+            print_warn "  Deleting PVC: monitoring/$pvc"
+            kubectl delete pvc "$pvc" -n monitoring 2>/dev/null || true
+        done
+    fi
+    
+    # Delete ReplicaSets in monitoring namespace
+    MON_RS=$(kubectl get rs -n monitoring --no-headers 2>/dev/null | awk '{print $1}' || echo "")
+    if [ -n "$MON_RS" ]; then
+        echo "$MON_RS" | while read rs; do
+            if [ -n "$rs" ] && [ "$rs" != "NAME" ]; then
+                print_info "  Deleting ReplicaSet: monitoring/$rs"
+                kubectl delete rs "$rs" -n monitoring --grace-period=0 --force 2>/dev/null || true
+            fi
+        done
+    fi
+    
+    # Delete pods in monitoring namespace
+    MON_PODS=$(kubectl get pods -n monitoring --no-headers 2>/dev/null | awk '{print $1}' || echo "")
+    if [ -n "$MON_PODS" ]; then
+        echo "$MON_PODS" | while read pod; do
+            if [ -n "$pod" ] && [ "$pod" != "NAME" ]; then
+                print_info "  Deleting pod: monitoring/$pod"
+                kubectl delete pod "$pod" -n monitoring --grace-period=0 --force 2>/dev/null || true
+            fi
+        done
+    fi
+    
+    # Delete ServiceAccounts, ClusterRoles, ClusterRoleBindings for monitoring
+    print_info "  Cleaning up RBAC resources for monitoring..."
+    kubectl delete serviceaccount prometheus -n monitoring 2>/dev/null || true
+    kubectl delete clusterrole prometheus 2>/dev/null || true
+    kubectl delete clusterrolebinding prometheus 2>/dev/null || true
+    
+    print_info "✓ Monitoring namespace resources cleaned up"
+else
+    print_info "No monitoring namespace found"
+fi
+
 # Wait a bit
-print_info "Waiting 5 seconds for cleanup to complete..."
-sleep 5
+print_info "Waiting 10 seconds for cleanup to complete..."
+sleep 10
 
 # Final status
 print_section "Cleanup Complete - Final Status"
 echo ""
 
-# Check what's left
-DEPLOYMENTS_LEFT=$(kubectl get deployment --no-headers 2>/dev/null | wc -l | tr -d ' ')
-SERVICES_LEFT=$(kubectl get svc --no-headers 2>/dev/null | grep -v "kubernetes" | wc -l | tr -d ' ')
-CONFIGMAPS_LEFT=$(kubectl get configmap --no-headers 2>/dev/null | grep -v "kube-root-ca.crt" | wc -l | tr -d ' ')
-PVCS_LEFT=$(kubectl get pvc --no-headers 2>/dev/null | wc -l | tr -d ' ')
-PODS_LEFT=$(kubectl get pods --no-headers 2>/dev/null | wc -l | tr -d ' ')
+# Check what's left (both default and monitoring namespaces)
+DEPLOYMENTS_LEFT=$(kubectl get deployment --all-namespaces --no-headers 2>/dev/null | grep -v "kube-system\|kube-public\|kube-node-lease" | wc -l | tr -d ' ')
+SERVICES_LEFT=$(kubectl get svc --all-namespaces --no-headers 2>/dev/null | grep -v "kube-system\|kube-public\|kube-node-lease\|kubernetes" | wc -l | tr -d ' ')
+CONFIGMAPS_LEFT=$(kubectl get configmap --all-namespaces --no-headers 2>/dev/null | grep -v "kube-system\|kube-public\|kube-node-lease\|kube-root-ca.crt" | wc -l | tr -d ' ')
+PVCS_LEFT=$(kubectl get pvc --all-namespaces --no-headers 2>/dev/null | grep -v "kube-system\|kube-public\|kube-node-lease" | wc -l | tr -d ' ')
+PODS_LEFT=$(kubectl get pods --all-namespaces --no-headers 2>/dev/null | grep -v "kube-system\|kube-public\|kube-node-lease" | wc -l | tr -d ' ')
 
-print_info "Remaining resources:"
+print_info "Remaining resources (across all namespaces):"
 echo "  Deployments: $DEPLOYMENTS_LEFT"
-echo "  Services: $SERVICES_LEFT (excluding default kubernetes service)"
+echo "  Services: $SERVICES_LEFT (excluding system services)"
 echo "  ConfigMaps: $CONFIGMAPS_LEFT (excluding system ConfigMaps)"
 echo "  PVCs: $PVCS_LEFT"
 echo "  Pods: $PODS_LEFT"
@@ -175,14 +250,16 @@ if [ "$DEPLOYMENTS_LEFT" = "0" ] && [ "$SERVICES_LEFT" = "0" ] && [ "$CONFIGMAPS
     echo ""
     print_info "✓✓✓ Complete cleanup successful! ✓✓✓"
     echo ""
-    print_info "You can now run ./deploy-everything.sh for a fresh deployment."
+    print_info "You can now run:"
+    print_info "  ./deploy-everything.sh  # Deploy the application"
+    print_info "  ./scripts/setup-monitoring.sh  # Set up monitoring (after app deployment)"
 else
     echo ""
     print_warn "Some resources may still remain:"
-    [ "$PODS_LEFT" -gt 0 ] && kubectl get pods
-    [ "$DEPLOYMENTS_LEFT" -gt 0 ] && kubectl get deployments
-    [ "$SERVICES_LEFT" -gt 0 ] && kubectl get svc | grep -v "kubernetes"
-    [ "$CONFIGMAPS_LEFT" -gt 0 ] && kubectl get configmap | grep -v "kube-root-ca.crt"
+    [ "$PODS_LEFT" -gt 0 ] && kubectl get pods --all-namespaces | grep -v "kube-system\|kube-public\|kube-node-lease"
+    [ "$DEPLOYMENTS_LEFT" -gt 0 ] && kubectl get deployments --all-namespaces | grep -v "kube-system\|kube-public\|kube-node-lease"
+    [ "$SERVICES_LEFT" -gt 0 ] && kubectl get svc --all-namespaces | grep -v "kube-system\|kube-public\|kube-node-lease\|kubernetes"
+    [ "$CONFIGMAPS_LEFT" -gt 0 ] && kubectl get configmap --all-namespaces | grep -v "kube-system\|kube-public\|kube-node-lease\|kube-root-ca.crt"
 fi
 
 echo ""

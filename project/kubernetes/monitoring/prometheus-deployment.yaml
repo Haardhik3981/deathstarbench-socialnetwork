@@ -30,6 +30,13 @@ spec:
       # Service account with permissions to discover Kubernetes resources
       serviceAccountName: prometheus
       
+      # Security context to fix PVC permissions
+      # Prometheus runs as UID 65534 (nobody), GID 65534 (nogroup)
+      securityContext:
+        fsGroup: 65534  # Set group ownership on mounted volumes
+        runAsUser: 65534
+        runAsGroup: 65534
+      
       containers:
       - name: prometheus
         image: prom/prometheus:v2.45.0

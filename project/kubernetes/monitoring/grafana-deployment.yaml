@@ -27,6 +27,13 @@ spec:
       labels:
         app: grafana
     spec:
+      # Security context to fix PVC permissions
+      # Grafana runs as UID 472 (grafana user), GID 472 (grafana group)
+      securityContext:
+        fsGroup: 472  # Set group ownership on mounted volumes
+        runAsUser: 472
+        runAsGroup: 472
+      
       containers:
       - name: grafana
         image: grafana/grafana:10.0.0
