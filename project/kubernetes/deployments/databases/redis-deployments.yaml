@@ -5,6 +5,7 @@
 # - social-graph-redis: Caches social graph data
 # - home-timeline-redis: Caches home timeline data
 # - user-timeline-redis: Caches user timeline data
+# - compose-post-redis: Caches compose post data
 
 # Social Graph Redis
 apiVersion: apps/v1
@@ -103,6 +104,45 @@ spec:
     metadata:
       labels:
         app: user-timeline-redis
+        component: cache
+    spec:
+      containers:
+      - name: redis
+        image: redis:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 6379
+          name: redis
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      restartPolicy: Always
+
+---
+# Compose Post Redis
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: compose-post-redis-deployment
+  namespace: default
+  labels:
+    app: compose-post-redis
+    component: cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: compose-post-redis
+      component: cache
+  template:
+    metadata:
+      labels:
+        app: compose-post-redis
         component: cache
     spec:
       containers:

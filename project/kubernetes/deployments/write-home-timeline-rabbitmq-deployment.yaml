@@ -1,0 +1,51 @@
+# Kubernetes Deployment for Write Home Timeline RabbitMQ (DeathStarBench)
+#
+# WHAT THIS DOES:
+# RabbitMQ message broker for async home timeline updates.
+# write-home-timeline-service consumes messages from this queue.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: write-home-timeline-rabbitmq-deployment
+  namespace: default
+  labels:
+    app: write-home-timeline-rabbitmq
+    component: message-queue
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: write-home-timeline-rabbitmq
+      component: message-queue
+  template:
+    metadata:
+      labels:
+        app: write-home-timeline-rabbitmq
+        component: message-queue
+    spec:
+      containers:
+      - name: rabbitmq
+        image: rabbitmq:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5672
+          name: amqp
+          protocol: TCP
+        - containerPort: 15672
+          name: management
+          protocol: TCP
+        env:
+        - name: RABBITMQ_DEFAULT_USER
+          value: "guest"
+        - name: RABBITMQ_DEFAULT_PASS
+          value: "guest"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      restartPolicy: Always
+

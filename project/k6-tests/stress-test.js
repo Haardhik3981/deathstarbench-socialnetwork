@@ -1,5 +1,10 @@
 // k6 Stress Test Script
 //
+// NOTE: This test uses different endpoints (/user-timeline/1/posts) that may not
+// trigger the compose-post flow. If you want to test compose-post specifically,
+// use constant-load.js which uses the wrk2-api endpoints and includes the
+// follower relationship fix to avoid "ZADD: no key specified" errors.
+//
 // WHAT THIS DOES:
 // This script gradually increases load until the system reaches its breaking point.
 // Unlike the peak test (sudden spike), this test ramps up slowly, allowing you to

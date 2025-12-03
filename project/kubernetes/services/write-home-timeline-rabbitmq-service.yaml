@@ -1,0 +1,25 @@
+# Kubernetes Service for Write Home Timeline RabbitMQ (DeathStarBench)
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: write-home-timeline-rabbitmq
+  namespace: default
+  labels:
+    app: write-home-timeline-rabbitmq
+    component: message-queue
+spec:
+  type: ClusterIP
+  selector:
+    app: write-home-timeline-rabbitmq
+    component: message-queue
+  ports:
+  - port: 5672
+    targetPort: 5672
+    protocol: TCP
+    name: amqp
+  - port: 15672
+    targetPort: 15672
+    protocol: TCP
+    name: management
+

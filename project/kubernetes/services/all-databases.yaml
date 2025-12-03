@@ -177,6 +177,25 @@ spec:
     targetPort: 6379
     protocol: TCP
 
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: compose-post-redis
+  namespace: default
+  labels:
+    app: compose-post-redis
+    component: cache
+spec:
+  type: ClusterIP
+  selector:
+    app: compose-post-redis
+    component: cache
+  ports:
+  - port: 6379
+    targetPort: 6379
+    protocol: TCP
+
 # Memcached Services
 ---
 apiVersion: v1

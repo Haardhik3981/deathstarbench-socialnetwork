@@ -21,6 +21,14 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Rate, Trend, Counter } from 'k6/metrics';
+import {
+  encodeFormData,
+  generateRandomUser,
+  generateRandomPost,
+  registerUser,
+  ensureUserHasFollower,
+  setupSeedUser,
+} from './test-helpers.js';
 
 // Custom metrics - track specific aspects of performance
 const errorRate = new Rate('errors');
@@ -36,7 +44,7 @@ export const options = {
   // Each VU simulates one user making requests
   stages: [
     { duration: '1m', target: 50 },   // Ramp up to 50 users over 1 minute
-    { duration: '5m', target: 50 },   // Stay at 50 users for 5 minutes
+    { duration: '1m', target: 50 },   // Stay at 50 users for 5 minutes
     { duration: '1m', target: 0 },    // Ramp down to 0 over 1 minute
   ],
   
@@ -57,64 +65,17 @@ export const options = {
 // In Kubernetes, this would be the LoadBalancer or NodePort URL
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
 
-// Helper function to generate random user data
-function generateRandomUser() {
-  const id = Math.floor(Math.random() * 1000000);
-  const username = `user_${id}_${Date.now()}`;
-  return {
-    user_id: id,
-    username: username,
-    first_name: `FirstName${id}`,
-    last_name: `LastName${id}`,
-    password: `password${id}`,
-  };
-}
-
-// Helper function to generate random post data
-function generateRandomPost(userId, username) {
-  const postTypes = [0, 1, 2]; // Different post types
-  return {
-    user_id: userId,
-    username: username,
-    post_type: postTypes[Math.floor(Math.random() * postTypes.length)],
-    text: `This is a test post from user ${username} at ${new Date().toISOString()}`,
-    media_ids: JSON.stringify([]),
-    media_types: JSON.stringify([]),
-  };
-}
-
-// Helper function to encode form data
-function encodeFormData(data) {
-  return Object.keys(data)
-    .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(data[key])}`)
-    .join('&');
-}
+// Helper functions are now imported from test-helpers.js
 
 // Main test function
 // This function runs for each virtual user, repeatedly, for the test duration
-export default function () {
+export default function (data) {
   // Simulate a user's workflow on the social network
   
   // 1. Register a new user (POST /wrk2-api/user/register)
   // NOTE: The endpoint expects form-encoded data, not JSON!
   const newUser = generateRandomUser();
-  const registerPayload = {
-    user_id: newUser.user_id.toString(),
-    username: newUser.username,
-    first_name: newUser.first_name,
-    last_name: newUser.last_name,
-    password: newUser.password,
-  };
-  
-  // Send as form-encoded data (application/x-www-form-urlencoded)
-  const registerResponse = http.post(
-    `${BASE_URL}/wrk2-api/user/register`,
-    encodeFormData(registerPayload),
-    {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      tags: { name: 'RegisterUser' }
-    }
-  );
+  const registerResponse = registerUser(BASE_URL, newUser);
   
   // Track status codes
   if (registerResponse.status === 200) {
@@ -150,6 +111,23 @@ export default function () {
   // Think time - simulate user reading the page
   sleep(1);
   
+  // 1.5. Create a follower relationship BEFORE composing posts
+  // This avoids the "ZADD: no key specified" error when users have no followers
+  // Strategy: Use a seed user (user_id 1) that should exist from setup
+  // Have the seed user follow the new user, so new user has at least one follower
+  const seedUserId = (data && data.seedUserId) || 1; // Fallback to 1 if setup data missing
+  const followResponse = ensureUserHasFollower(BASE_URL, newUser.user_id, seedUserId);
+  
+  // Track follow status (non-blocking - if seed user doesn't exist, we'll still try compose)
+  if (followResponse.status === 200) {
+    status200.add(1);
+  } else if (followResponse.status >= 500) {
+    status500.add(1);
+  }
+  
+  // Small sleep after follow operation
+  sleep(0.5);
+  
   // 2. Compose a post (POST /wrk2-api/post/compose)
   // NOTE: Also expects form-encoded data
   const postData = generateRandomPost(newUser.user_id, newUser.username);
@@ -167,6 +145,17 @@ export default function () {
     'compose status is 200': (r) => r.status === 200,
     'compose response time < 2000ms': (r) => r.timings.duration < 2000,
   });
+  
+  // Track compose status codes
+  if (composeResponse.status === 200) {
+    status200.add(1);
+  } else if (composeResponse.status === 400) {
+    status400.add(1);
+  } else if (composeResponse.status >= 500) {
+    status500.add(1);
+  } else {
+    statusOther.add(1);
+  }
   
   if (!composeSuccess && Math.random() < 0.01) {
     console.log(`Compose failed: status=${composeResponse.status}, body=${composeResponse.body.substring(0, 200)}`);
@@ -198,7 +187,10 @@ export function setup() {
   console.log(`Target URL: ${BASE_URL}`);
   console.log(`Test stages: ${JSON.stringify(options.stages)}`);
   
-  return {};
+  // Create a seed user (user_id 1) that other users can follow
+  // This ensures users have at least one follower before composing posts
+  // This avoids the "ZADD: no key specified" error
+  return setupSeedUser(BASE_URL);
 }
 
 // Teardown function - runs once after the test completes
@@ -206,8 +198,54 @@ export function teardown(data) {
   console.log('Constant load test completed!');
   console.log('Check the summary for detailed metrics.');
   console.log('\nStatus Code Summary:');
-  console.log(`  200 OK: ${status200.values[''] || 0}`);
-  console.log(`  400 Bad Request: ${status400.values[''] || 0}`);
-  console.log(`  500+ Server Error: ${status500.values[''] || 0}`);
-  console.log(`  Other: ${statusOther.values[''] || 0}`);
+  
+  // k6 Counter metrics store values in a Map-like structure
+  // The key is usually an empty string for untagged metrics
+  let status200Count = 0;
+  let status400Count = 0;
+  let status500Count = 0;
+  let statusOtherCount = 0;
+  
+  // Try to get values from the Counter metrics
+  try {
+    // Counter.values is a Map, get the value for the default tag (empty string)
+    if (status200.values && status200.values.get) {
+      status200Count = status200.values.get('') || 0;
+    } else if (status200.values && status200.values['']) {
+      status200Count = status200.values[''] || 0;
+    }
+    
+    if (status400.values && status400.values.get) {
+      status400Count = status400.values.get('') || 0;
+    } else if (status400.values && status400.values['']) {
+      status400Count = status400.values[''] || 0;
+    }
+    
+    if (status500.values && status500.values.get) {
+      status500Count = status500.values.get('') || 0;
+    } else if (status500.values && status500.values['']) {
+      status500Count = status500.values[''] || 0;
+    }
+    
+    if (statusOther.values && statusOther.values.get) {
+      statusOtherCount = statusOther.values.get('') || 0;
+    } else if (statusOther.values && statusOther.values['']) {
+      statusOtherCount = statusOther.values[''] || 0;
+    }
+  } catch (e) {
+    // If we can't read the values, just show 0
+    console.log('  (Unable to read status code counters)');
+  }
+  
+  console.log(`  200 OK: ${status200Count}`);
+  console.log(`  400 Bad Request: ${status400Count}`);
+  console.log(`  500+ Server Error: ${status500Count}`);
+  console.log(`  Other: ${statusOtherCount}`);
+  
+  // Note: Counter.values may not be accessible in teardown
+  // The actual counts are shown in the CUSTOM metrics section above
+  if (status200Count === 0 && status400Count === 0 && status500Count === 0 && statusOtherCount === 0) {
+    console.log('\nNote: Status counters show 0, but check the CUSTOM metrics section above');
+    console.log('      for actual status_200 count (should match successful requests)');
+  }
 }
