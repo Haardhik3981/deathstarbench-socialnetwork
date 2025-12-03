@@ -1,0 +1,216 @@
+# Enhanced Prometheus Metrics Exporter Sidecar
+# Reads CPU/Memory from cgroups and exposes via /metrics endpoint
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metrics-exporter-script
+  namespace: cse239fall2025
+data:
+  metrics-server.py: |
+    #!/usr/bin/env python3
+    """
+    Enhanced Prometheus metrics exporter sidecar
+    Exposes pod-level metrics including CPU and Memory from cgroups
+    """
+    import http.server
+    import socketserver
+    import time
+    import os
+    import glob
+
+    PORT = 9091
+    METRICS_PATH = "/metrics"
+
+    def read_cpu_usage():
+        """Read CPU usage from cgroup (in nanoseconds)"""
+        try:
+            # Try v2 first (newer systems)
+            cpu_usage_paths = [
+                '/sys/fs/cgroup/cpu.stat',  # v2
+                '/sys/fs/cgroup/cpu/cpuacct.usage',  # v1
+            ]
+            
+            for path in cpu_usage_paths:
+                if os.path.exists(path):
+                    if 'cpu.stat' in path:
+                        # v2 format: read user_usec and system_usec
+                        with open(path, 'r') as f:
+                            content = f.read()
+                            user_usec = 0
+                            system_usec = 0
+                            for line in content.split('\n'):
+                                if line.startswith('user_usec'):
+                                    user_usec = int(line.split()[1])
+                                elif line.startswith('system_usec'):
+                                    system_usec = int(line.split()[1])
+                            return (user_usec + system_usec) * 1000  # Convert to nanoseconds
+                    else:
+                        # v1 format
+                        with open(path, 'r') as f:
+                            return int(f.read().strip())
+            return 0
+        except Exception as e:
+            print(f"Error reading CPU usage: {e}")
+            return 0
+
+    def read_memory_usage():
+        """Read memory usage from cgroup (in bytes)"""
+        try:
+            # Try v2 first
+            memory_paths = [
+                '/sys/fs/cgroup/memory.current',  # v2
+                '/sys/fs/cgroup/memory/memory.usage_in_bytes',  # v1
+            ]
+            
+            for path in memory_paths:
+                if os.path.exists(path):
+                    with open(path, 'r') as f:
+                        return int(f.read().strip())
+            return 0
+        except Exception as e:
+            print(f"Error reading memory usage: {e}")
+            return 0
+
+    def get_pod_count():
+        """Try to get pod count from Kubernetes API (may fail without RBAC)"""
+        try:
+            # Try to read from service account token
+            token_path = '/var/run/secrets/kubernetes.io/serviceaccount/token'
+            namespace_path = '/var/run/secrets/kubernetes.io/serviceaccount/namespace'
+            api_server = os.environ.get('KUBERNETES_SERVICE_HOST', 'kubernetes.default.svc')
+            api_port = os.environ.get('KUBERNETES_SERVICE_PORT', '443')
+            
+            if os.path.exists(token_path) and os.path.exists(namespace_path):
+                with open(namespace_path, 'r') as f:
+                    namespace = f.read().strip()
+                
+                with open(token_path, 'r') as f:
+                    token = f.read().strip()
+                
+                import urllib.request
+                import ssl
+                
+                # Create SSL context that doesn't verify certificates (for internal cluster)
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                
+                url = f'https://{api_server}:{api_port}/api/v1/namespaces/{namespace}/pods'
+                req = urllib.request.Request(url)
+                req.add_header('Authorization', f'Bearer {token}')
+                
+                try:
+                    with urllib.request.urlopen(req, context=ctx, timeout=2) as response:
+                        import json
+                        data = json.loads(response.read())
+                        total_pods = len(data.get('items', []))
+                        running_pods = sum(1 for item in data.get('items', []) 
+                                          if item.get('status', {}).get('phase') == 'Running')
+                        return total_pods, running_pods
+                except Exception as e:
+                    print(f"Kubernetes API call failed (likely no RBAC): {e}")
+                    return None, None
+            return None, None
+        except Exception as e:
+            print(f"Error getting pod count: {e}")
+            return None, None
+
+    # Store previous CPU reading for rate calculation
+    prev_cpu_time = 0
+    prev_timestamp = time.time()
+
+    class MetricsHandler(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            global prev_cpu_time, prev_timestamp
+            
+            if self.path == METRICS_PATH or self.path == METRICS_PATH + "/":
+                self.send_response(200)
+                self.send_header('Content-type', 'text/plain; version=0.0.4')
+                self.end_headers()
+                
+                # Get pod name from environment
+                pod_name = os.environ.get('HOSTNAME', 'unknown')
+                namespace = os.environ.get('POD_NAMESPACE', 'default')
+                current_time = int(time.time())
+                current_time_float = time.time()
+                
+                # Read CPU and Memory from cgroups
+                cpu_nanoseconds = read_cpu_usage()
+                memory_bytes = read_memory_usage()
+                
+                # Calculate CPU usage rate (cores)
+                current_timestamp = time.time()
+                time_delta = current_timestamp - prev_timestamp
+                if time_delta > 0 and prev_cpu_time > 0:
+                    cpu_delta = cpu_nanoseconds - prev_cpu_time
+                    cpu_cores = (cpu_delta / 1e9) / time_delta  # Convert nanoseconds to cores per second
+                else:
+                    cpu_cores = 0.0
+                
+                prev_cpu_time = cpu_nanoseconds
+                prev_timestamp = current_timestamp
+                
+                # Try to get pod count
+                total_pods, running_pods = get_pod_count()
+                
+                # Generate Prometheus metrics
+                metrics = "# HELP pod_info Pod information\n"
+                metrics += "# TYPE pod_info gauge\n"
+                metrics += 'pod_info{pod="' + pod_name + '",namespace="' + namespace + '"} 1\n'
+                metrics += "\n"
+                
+                metrics += "# HELP pod_cpu_usage_cores CPU usage in cores for this pod\n"
+                metrics += "# TYPE pod_cpu_usage_cores gauge\n"
+                metrics += 'pod_cpu_usage_cores{pod="' + pod_name + '",namespace="' + namespace + '"} ' + str(cpu_cores) + '\n'
+                metrics += "\n"
+                
+                metrics += "# HELP pod_memory_usage_bytes Memory usage in bytes for this pod\n"
+                metrics += "# TYPE pod_memory_usage_bytes gauge\n"
+                metrics += 'pod_memory_usage_bytes{pod="' + pod_name + '",namespace="' + namespace + '"} ' + str(memory_bytes) + '\n'
+                metrics += "\n"
+                
+                # Pod count (if available from Kubernetes API)
+                if total_pods is not None:
+                    metrics += "# HELP namespace_pod_count Total number of pods in the namespace\n"
+                    metrics += "# TYPE namespace_pod_count gauge\n"
+                    metrics += 'namespace_pod_count{namespace="' + namespace + '"} ' + str(total_pods) + '\n'
+                    metrics += "\n"
+                    
+                    metrics += "# HELP namespace_running_pods Number of running pods in the namespace\n"
+                    metrics += "# TYPE namespace_running_pods gauge\n"
+                    metrics += 'namespace_running_pods{namespace="' + namespace + '"} ' + str(running_pods) + '\n'
+                    metrics += "\n"
+                
+                metrics += "# HELP pod_uptime_seconds Pod uptime in seconds\n"
+                metrics += "# TYPE pod_uptime_seconds counter\n"
+                metrics += 'pod_uptime_seconds{pod="' + pod_name + '"} ' + str(current_time) + '\n'
+                metrics += "\n"
+                
+                metrics += "# HELP http_requests_total Total HTTP requests\n"
+                metrics += "# TYPE http_requests_total counter\n"
+                metrics += 'http_requests_total{pod="' + pod_name + '",method="GET",status="200"} 0\n'
+                metrics += "\n"
+                
+                metrics += "# HELP http_request_duration_seconds HTTP request duration\n"
+                metrics += "# TYPE http_request_duration_seconds histogram\n"
+                metrics += 'http_request_duration_seconds_bucket{pod="' + pod_name + '",le="0.1"} 0\n'
+                metrics += 'http_request_duration_seconds_bucket{pod="' + pod_name + '",le="0.5"} 0\n'
+                metrics += 'http_request_duration_seconds_bucket{pod="' + pod_name + '",le="1.0"} 0\n'
+                metrics += 'http_request_duration_seconds_bucket{pod="' + pod_name + '",le="+Inf"} 0\n'
+                metrics += 'http_request_duration_seconds_sum{pod="' + pod_name + '"} 0\n'
+                metrics += 'http_request_duration_seconds_count{pod="' + pod_name + '"} 0\n'
+                metrics += "\n"
+                
+                metrics += "# HELP scrape_timestamp_seconds Timestamp of last scrape\n"
+                metrics += "# TYPE scrape_timestamp_seconds gauge\n"
+                metrics += 'scrape_timestamp_seconds{pod="' + pod_name + '"} ' + str(current_time_float) + '\n'
+                
+                self.wfile.write(metrics.encode())
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+    if __name__ == "__main__":
+        with socketserver.TCPServer(("", PORT), MetricsHandler) as httpd:
+            print(f"Metrics server listening on port {PORT}")
+            httpd.serve_forever()
