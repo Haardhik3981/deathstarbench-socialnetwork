@@ -57,6 +57,10 @@ spec:
         - containerPort: 8080
           name: http
           protocol: TCP
+        # Environment variables for Kubernetes service discovery
+        env:
+        - name: fqdn_suffix
+          value: ".default.svc.cluster.local"
         resources:
           requests:
             cpu: 100m  # Reduced from 200m for development/testing
@@ -95,8 +99,32 @@ spec:
           subPath: service-config.json
           readOnly: true
         # Lua scripts for API handlers (nginx expects them here)
-        - name: lua-scripts
-          mountPath: /usr/local/openresty/nginx/lua-scripts
+        # Mount each subdirectory as a separate ConfigMap
+        # API subdirectories
+        - name: lua-scripts-api-home-timeline
+          mountPath: /usr/local/openresty/nginx/lua-scripts/api/home-timeline
+          readOnly: true
+        - name: lua-scripts-api-post
+          mountPath: /usr/local/openresty/nginx/lua-scripts/api/post
+          readOnly: true
+        - name: lua-scripts-api-user
+          mountPath: /usr/local/openresty/nginx/lua-scripts/api/user
+          readOnly: true
+        - name: lua-scripts-api-user-timeline
+          mountPath: /usr/local/openresty/nginx/lua-scripts/api/user-timeline
+          readOnly: true
+        # WRK2-API subdirectories
+        - name: lua-scripts-wrk2-api-home-timeline
+          mountPath: /usr/local/openresty/nginx/lua-scripts/wrk2-api/home-timeline
+          readOnly: true
+        - name: lua-scripts-wrk2-api-post
+          mountPath: /usr/local/openresty/nginx/lua-scripts/wrk2-api/post
+          readOnly: true
+        - name: lua-scripts-wrk2-api-user
+          mountPath: /usr/local/openresty/nginx/lua-scripts/wrk2-api/user
+          readOnly: true
+        - name: lua-scripts-wrk2-api-user-timeline
+          mountPath: /usr/local/openresty/nginx/lua-scripts/wrk2-api/user-timeline
           readOnly: true
         # HTML pages and static assets (nginx expects them here)
         - name: pages
@@ -116,10 +144,33 @@ spec:
       - name: deathstarbench-config
         configMap:
           name: deathstarbench-config
-      # Lua scripts for API handlers
-      - name: lua-scripts
+      # Lua scripts for API handlers - each subdirectory as separate ConfigMap
+      # API subdirectories
+      - name: lua-scripts-api-home-timeline
         configMap:
-          name: nginx-lua-scripts
+          name: nginx-lua-scripts-api-home-timeline
+      - name: lua-scripts-api-post
+        configMap:
+          name: nginx-lua-scripts-api-post
+      - name: lua-scripts-api-user
+        configMap:
+          name: nginx-lua-scripts-api-user
+      - name: lua-scripts-api-user-timeline
+        configMap:
+          name: nginx-lua-scripts-api-user-timeline
+      # WRK2-API subdirectories
+      - name: lua-scripts-wrk2-api-home-timeline
+        configMap:
+          name: nginx-lua-scripts-wrk2-api-home-timeline
+      - name: lua-scripts-wrk2-api-post
+        configMap:
+          name: nginx-lua-scripts-wrk2-api-post
+      - name: lua-scripts-wrk2-api-user
+        configMap:
+          name: nginx-lua-scripts-wrk2-api-user
+      - name: lua-scripts-wrk2-api-user-timeline
+        configMap:
+          name: nginx-lua-scripts-wrk2-api-user-timeline
       # HTML pages and static assets
       - name: pages
         configMap:

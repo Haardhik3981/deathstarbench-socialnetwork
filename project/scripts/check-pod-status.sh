@@ -1,82 +1,80 @@
 #!/bin/bash
 
-# Check current pod status and resource usage
+# Check pod status and ensure we're connecting to the right one
 
 set -e
 
-# Colors
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+echo "=== Checking nginx-thrift Pod Status ==="
+echo ""
 
-print_section() {
-    echo -e "${BLUE}=== $1 ===${NC}"
-}
-
-print_info() {
-    echo -e "${GREEN}[INFO]${NC} $1"
-}
-
-print_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
-}
-
-print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
+# Check all pods
+echo "All nginx-thrift pods:"
+kubectl get pods -l app=nginx-thrift -o wide
 
 echo ""
-print_section "Current Pod Status Overview"
+echo "Pod details:"
+kubectl get pods -l app=nginx-thrift -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.phase}{"\t"}{.status.podIP}{"\t"}{.metadata.creationTimestamp}{"\n"}{end}'
 
 echo ""
-print_section "1. Pod Status Summary"
-kubectl get pods
+echo "Checking for old pods that should be terminated:"
+OLD_PODS=$(kubectl get pods -l app=nginx-thrift --field-selector=status.phase!=Running -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
 
-echo ""
-print_section "2. Pods by Status"
-echo "Running:"
-kubectl get pods --field-selector=status.phase=Running | grep -v NAME | wc -l | xargs echo
-echo ""
-echo "Pending:"
-kubectl get pods --field-selector=status.phase=Pending
-echo ""
-echo "Failed/Error:"
-kubectl get pods | grep -E "(Error|CrashLoopBackOff|OOMKilled|Evicted)" || echo "None found"
-
-echo ""
-print_section "3. Resource Usage - CPU"
-kubectl describe nodes | grep -A 5 "Allocated resources" | head -20
-
-echo ""
-print_section "4. Resource Usage - Memory"
-kubectl top nodes 2>/dev/null || echo "Metrics server not available"
-
-echo ""
-print_section "5. Memory Issues Check"
-OOM_PODS=$(kubectl get pods | grep -E "OOMKilled|Evicted" || echo "")
-if [ -n "$OOM_PODS" ]; then
-    print_error "Found pods killed due to memory:"
-    echo "$OOM_PODS"
-else
-    print_info "No OOM-killed pods found"
-fi
-
-echo ""
-print_section "6. Detailed Status of Problem Pods"
-PROBLEM_PODS=$(kubectl get pods | awk '$3!~/Running|Completed/ {print $1}' | tail -n +2)
-if [ -n "$PROBLEM_PODS" ]; then
-    for pod in $PROBLEM_PODS; do
-        print_warn "Pod: $pod"
-        kubectl describe pod "$pod" 2>/dev/null | grep -A 5 "State:\|Status:\|Events:" | head -10 || true
-        echo ""
+if [ -n "$OLD_PODS" ]; then
+    echo "⚠ Found non-running pods:"
+    for pod in $OLD_PODS; do
+        echo "  - $pod"
+        kubectl get pod "$pod" -o jsonpath='  Status: {.status.phase}, Created: {.metadata.creationTimestamp}{"\n"}'
     done
+    echo ""
+    echo "These should be cleaned up automatically, but you can force delete them:"
+    echo "  kubectl delete pod $OLD_PODS"
 else
-    print_info "All pods are running!"
+    echo "✓ No old pods found"
 fi
 
 echo ""
-print_section "7. Node Capacity vs Requests"
-kubectl describe nodes | grep -E "Allocatable:|Allocated resources:" -A 10 | head -30
+echo "Current running pod:"
+RUNNING_POD=$(kubectl get pods -l app=nginx-thrift --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
+if [ -z "$RUNNING_POD" ]; then
+    echo "✗ ERROR: No running pod found!"
+    echo ""
+    echo "Checking all pods:"
+    kubectl get pods -l app=nginx-thrift
+    echo ""
+    echo "Checking pod events:"
+    kubectl get pods -l app=nginx-thrift -o jsonpath='{range .items[*]}{.metadata.name}{": "}{.status.containerStatuses[0].state}{"\n"}{end}'
+else
+    echo "✓ Running pod: $RUNNING_POD"
+    echo ""
+    echo "Pod status:"
+    kubectl get pod "$RUNNING_POD" -o jsonpath='  Phase: {.status.phase}{"\n"}'
+    kubectl get pod "$RUNNING_POD" -o jsonpath='  Ready: {.status.containerStatuses[0].ready}{"\n"}'
+    kubectl get pod "$RUNNING_POD" -o jsonpath='  IP: {.status.podIP}{"\n"}'
+    kubectl get pod "$RUNNING_POD" -o jsonpath='  Created: {.metadata.creationTimestamp}{"\n"}'
+    
+    echo ""
+    echo "Checking if port-forward is needed:"
+    echo "  If you're using port-forward, make sure it's pointing to: $RUNNING_POD"
+    echo "  Restart port-forward: kubectl port-forward pod/$RUNNING_POD 8080:8080"
+fi
+
+echo ""
+echo "Service endpoints:"
+kubectl get endpoints nginx-thrift-service 2>/dev/null || echo "  (Service not found - check service name)"
+
+echo ""
+echo "=== Recommendations ==="
+echo ""
+echo "1. If old pods exist, delete them:"
+echo "   kubectl delete pod <old-pod-name>"
+echo ""
+echo "2. Restart port-forward to ensure it's pointing to the new pod:"
+echo "   kubectl port-forward svc/nginx-thrift-service 8080:8080"
+echo "   OR"
+echo "   kubectl port-forward pod/$RUNNING_POD 8080:8080"
+echo ""
+echo "3. Check pod logs for errors:"
+if [ -n "$RUNNING_POD" ]; then
+    echo "   kubectl logs $RUNNING_POD --tail=50"
+fi
