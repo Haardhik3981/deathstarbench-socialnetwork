@@ -15,6 +15,9 @@ spec:
       labels:
         app: prometheus
     spec:
+      # 🔑 ServiceAccount with RBAC permissions for Kubernetes API access
+      serviceAccountName: prometheus
+      
       # 🟢 POD-LEVEL securityContext (fsGroup MUST be here)
       securityContext:
         fsGroup: 0
