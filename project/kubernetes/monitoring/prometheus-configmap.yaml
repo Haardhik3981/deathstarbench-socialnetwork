@@ -8,6 +8,12 @@
 # - What metrics to collect
 # - How to label and organize metrics
 #
+# IMPORTANT FIXES APPLIED:
+# - Pod scraping: Correctly combines pod IP and port annotation (fixes "9090:9090" errors)
+# - Node scraping: Uses API server proxy to avoid RBAC permission issues (fixes 403 errors)
+# - DeathStarBench services: Automatically skipped (they use Thrift, not HTTP metrics)
+#   Container-level metrics for these services are still available via cAdvisor
+#
 # KEY CONCEPTS:
 # - scrape_configs: Defines which endpoints Prometheus should collect metrics from
 # - scrape_interval: How often to collect metrics (default: 15s)
@@ -72,7 +78,8 @@ data:
             action: keep
             regex: default;kubernetes;https
       
-      # Scrape Kubernetes nodes (kubelet)
+      # Scrape Kubernetes nodes (kubelet metrics via API server proxy)
+      # Using the proxy endpoint avoids direct kubelet access permissions
       - job_name: 'kubernetes-nodes'
         kubernetes_sd_configs:
           - role: node
@@ -81,12 +88,21 @@ data:
           ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
         bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
         relabel_configs:
+          # Replace the address to use the API server proxy
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          # Replace the metrics path to use the node proxy API
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/${1}/proxy/metrics
+          # Add node labels
           - action: labelmap
             regex: __meta_kubernetes_node_label_(.+)
       
       # Scrape Kubernetes pods - automatically discover all pods
       # This is powerful: Prometheus will automatically find and scrape any pod
-      # that has the right annotations
+      # that has the right annotations AND exposes actual HTTP metrics endpoints
       - job_name: 'kubernetes-pods'
         kubernetes_sd_configs:
           - role: pod
@@ -96,12 +112,20 @@ data:
             action: keep
             regex: true
           
-          # Use the port specified in prometheus.io/port annotation
-          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+          # Skip DeathStarBench microservices - they use Thrift, not HTTP metrics
+          # These services don't expose HTTP /metrics endpoints
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: drop
+            regex: 'user-service|home-timeline-service|url-shorten-service|user-timeline-service|compose-post-service|post-storage-service|social-graph-service|text-service|unique-id-service|user-mention-service|media-service'
+          
+          # Build address from pod IP and port annotation
+          # Source labels are joined with ';' by default, so we get "IP;PORT"
+          # We extract both parts and combine as "IP:PORT"
+          - source_labels: [__meta_kubernetes_pod_ip, __meta_kubernetes_pod_annotation_prometheus_io_port]
             action: replace
+            regex: '^([^;]+);(.+)$'
+            replacement: '${1}:${2}'
             target_label: __address__
-            regex: (.+)
-            replacement: $1:${1}
           
           # Add pod name as a label
           - action: labelmap
@@ -116,6 +140,13 @@ data:
           - source_labels: [__meta_kubernetes_pod_name]
             action: replace
             target_label: kubernetes_pod_name
+          
+          # Set the metrics path if specified, default to /metrics
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+            replacement: ${1}
       
       # Scrape our microservices directly
       # These are static configurations for services we know about

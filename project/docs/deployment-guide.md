@@ -274,10 +274,26 @@ echo "Grafana available at: http://${GRAFANA_IP}:3000"
 2. Go to **Status > Targets**: http://localhost:9090/targets
 3. You should see targets with status "UP":
    - `prometheus` (Prometheus itself)
-   - `kubernetes-pods` (automatically discovered pods)
-   - `kubernetes-nodes` (node metrics)
+   - `kubernetes-pods` (services that expose HTTP metrics)
+   - `kubernetes-nodes` (node metrics via API proxy)
+   - `cadvisor` (container metrics for all pods)
    - `kubernetes-apiservers` (API server metrics)
-   - Service-specific jobs (user-service, social-graph-service, etc.)
+
+**Note:** DeathStarBench microservices will NOT appear in targets because they use Thrift (not HTTP). You can still monitor them using cAdvisor container metrics (CPU, memory, network).
+
+**Important:** The endpoint links in the Targets page will show "site can't be reached" in your browser - this is **normal and expected**. These are internal Kubernetes addresses that only work from within the cluster. Prometheus can access them, which is what matters.
+
+### Using Prometheus
+
+**For a complete guide on how to use Prometheus, see:** `PROMETHEUS_GUIDE.md`
+
+**Quick Start:**
+1. **Check Targets Page** (Status > Targets) - Verify services are UP
+2. **Query Metrics** (Graph page) - Type queries like:
+   - `container_cpu_usage_seconds_total` - See CPU usage
+   - `container_memory_usage_bytes` - See memory usage
+   - `rate(container_cpu_usage_seconds_total[5m])` - CPU usage rate
+3. **Monitor During Tests** - Watch metrics change in real-time during k6 load tests
 
 ### Configure Grafana Dashboards
 

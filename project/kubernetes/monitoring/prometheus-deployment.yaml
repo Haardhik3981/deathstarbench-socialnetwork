@@ -9,6 +9,11 @@
 # - Service: Exposes Prometheus UI and API
 # - PersistentVolumeClaim: Stores metrics data persistently
 # - ServiceAccount: Gives Prometheus permissions to discover Kubernetes resources
+#
+# IMPORTANT FIXES APPLIED:
+# - SecurityContext: Added fsGroup, runAsUser, runAsGroup to fix PVC permission errors
+#   (Prometheus runs as UID 65534, GID 65534 - ensures PVC is writable)
+# - RBAC: Added permissions for node proxy API access (for scraping node metrics)
 
 apiVersion: apps/v1
 kind: Deployment
@@ -144,6 +149,7 @@ rules:
   resources:
   - nodes
   - nodes/proxy
+  - nodes/metrics
   - services
   - endpoints
   - pods
@@ -153,7 +159,10 @@ rules:
   resources:
   - ingresses
   verbs: ["get", "list", "watch"]
-- nonResourceURLs: ["/metrics"]
+- nonResourceURLs: 
+  - "/metrics"
+  - "/api/v1/nodes/*/proxy/metrics"
+  - "/api/v1/nodes/*/proxy/metrics/cadvisor"
   verbs: ["get"]
 
 ---
