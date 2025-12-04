@@ -15,6 +15,16 @@ spec:
       labels:
         service: {{ .Values.name }}
         app: {{ .Values.name }}
+      {{- if $.Values.global.prometheus.enabled }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: {{ $.Values.global.prometheus.path | quote }}
+        prometheus.io/port: "9091"
+        prometheus.io/scheme: {{ $.Values.global.prometheus.scheme | default "http" | quote }}
+        {{- if $.Values.global.prometheus.interval }}
+        prometheus.io/interval: {{ $.Values.global.prometheus.interval | quote }}
+        {{- end }}
+      {{- end }}
     spec: 
       containers:
       {{- with .Values.container }}
@@ -62,6 +72,38 @@ spec:
         {{- end }}
         {{- end }}
       {{- end }}
+      {{- if $.Values.global.prometheus.enabled }}
+      # Prometheus metrics exporter sidecar
+      # Exposes pod-level metrics on /metrics endpoint (port 9091)
+      - name: prometheus-exporter
+        image: python:3.11-alpine
+        command:
+          - python3
+          - /metrics-server.py
+        ports:
+        - containerPort: 9091
+          name: metrics
+        env:
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 50m
+            memory: 64Mi
+        volumeMounts:
+        - name: metrics-script
+          mountPath: /metrics-server.py
+          subPath: metrics-server.py
+      {{- end }}
 
       initContainers:
       {{- with .Values.initContainer }}
@@ -101,14 +143,22 @@ spec:
         {{- end }}
       {{- end -}}
 
-      {{- if $.Values.configMaps }}
+      {{- if or $.Values.configMaps $.Values.global.prometheus.enabled }}
       volumes:
+      {{- if $.Values.configMaps }}
       - name: {{ $.Values.name }}-config
         configMap:
           name: {{ $.Values.name }}
       {{- range $.Values.volumes }}
       - name: {{ .name }}
         emptyDir: {}
+      {{- end }}
+      {{- end }}
+      {{- if $.Values.global.prometheus.enabled }}
+      - name: metrics-script
+        configMap:
+          name: metrics-exporter-script
+          defaultMode: 0755
       {{- end }}
       {{- end }}
       

@@ -1,0 +1,150 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-scripts
+  namespace: cse239fall2025
+data:
+  load-test.js: |
+    import http from 'k6/http';
+    import { check, sleep } from 'k6';
+    import { Rate, Trend, Counter } from 'k6/metrics';
+
+    // Custom metrics
+    const errorRate = new Rate('errors');
+    const homeTimelineDuration = new Trend('home_timeline_duration');
+    const userTimelineDuration = new Trend('user_timeline_duration');
+    const composePostDuration = new Trend('compose_post_duration');
+    const successfulRequests = new Counter('successful_requests');
+
+    // Inside cluster, use service DNS name!
+    const BASE_URL = 'http://nginx-thrift:8080';
+
+    // Load test stages
+    export const options = {
+      stages: [
+        { duration: '2m', target: 50 },
+        { duration: '5m', target: 50 },
+        { duration: '2m', target: 100 },
+        { duration: '3m', target: 100 },
+        { duration: '2m', target: 0 },
+      ],
+      thresholds: {
+        http_req_duration: ['p(95)<500', 'p(99)<1000'],
+        errors: ['rate<0.1'],
+      },
+    };
+
+    function randomUserId() {
+      return Math.floor(Math.random() * 962) + 1;
+    }
+
+    function randomString(length) {
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ';
+      let result = '';
+      for (let i = 0; i < length; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return result;
+    }
+
+    export default function () {
+      const userId = randomUserId();
+      const scenario = Math.random();
+      
+      if (scenario < 0.35) {
+        // Home Timeline (35%)
+        const res = http.get(
+          `${BASE_URL}/wrk2-api/home-timeline/read?user_id=${userId}&start=0&stop=10`,
+          { tags: { name: 'HomeTimeline' } }
+        );
+        homeTimelineDuration.add(res.timings.duration);
+        const success = check(res, {
+          'home timeline status is 200': (r) => r.status === 200,
+        });
+        if (success) successfulRequests.add(1);
+        errorRate.add(!success);
+      }
+      else if (scenario < 0.65) {
+        // User Timeline (30%)
+        const res = http.get(
+          `${BASE_URL}/wrk2-api/user-timeline/read?user_id=${userId}&start=0&stop=10`,
+          { tags: { name: 'UserTimeline' } }
+        );
+        userTimelineDuration.add(res.timings.duration);
+        const success = check(res, { 'user timeline status is 200': (r) => r.status === 200 });
+        if (success) successfulRequests.add(1);
+        errorRate.add(!success);
+      }
+      else if (scenario < 0.80) {
+        // Compose Post (15%)
+        const postText = randomString(100);
+        const res = http.post(
+          `${BASE_URL}/wrk2-api/post/compose`,
+          `user_id=${userId}&username=user_${userId}&text=${encodeURIComponent(postText)}&media_ids=[]&media_types=[]&post_type=0`,
+          {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            tags: { name: 'ComposePost' },
+          }
+        );
+        composePostDuration.add(res.timings.duration);
+        const success = check(res, { 'compose post status is 200': (r) => r.status === 200 });
+        if (success) successfulRequests.add(1);
+        errorRate.add(!success);
+      }
+      else if (scenario < 0.90) {
+        // Follow User (10%)
+        const followeeId = randomUserId();
+        const res = http.post(
+          `${BASE_URL}/wrk2-api/user/follow`,
+          `user_id=${userId}&followee_id=${followeeId}`,
+          {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            tags: { name: 'FollowUser' },
+          }
+        );
+        const success = check(res, { 'follow status is 200': (r) => r.status === 200 });
+        if (success) successfulRequests.add(1);
+        errorRate.add(!success);
+      }
+      else if (scenario < 0.95) {
+        // Unfollow User (5%)
+        const followeeId = randomUserId();
+        const res = http.post(
+          `${BASE_URL}/wrk2-api/user/unfollow`,
+          `user_id=${userId}&followee_id=${followeeId}`,
+          {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            tags: { name: 'UnfollowUser' },
+          }
+        );
+        const success = check(res, { 'unfollow status is 200': (r) => r.status === 200 });
+        if (success) successfulRequests.add(1);
+        errorRate.add(!success);
+      }
+      else {
+        // Register User (5%)
+        const newUserId = Math.floor(Math.random() * 100000) + 10000;
+        const username = `testuser_${newUserId}`;
+        const res = http.post(
+          `${BASE_URL}/wrk2-api/user/register`,
+          `first_name=Test&last_name=User&username=${username}&password=testpass&user_id=${newUserId}`,
+          {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            tags: { name: 'RegisterUser' },
+          }
+        );
+        const success = check(res, { 'register status is 200': (r) => r.status === 200 });
+        if (success) successfulRequests.add(1);
+        errorRate.add(!success);
+      }
+      
+      sleep(Math.random() * 2 + 1);
+    }
+
+    export function handleSummary(data) {
+      return {
+        'stdout': JSON.stringify(data, null, 2),
+      };
+    }
+

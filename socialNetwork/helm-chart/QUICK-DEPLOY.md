@@ -83,9 +83,28 @@ You should now have:
 - ✅ Dashboards in Grafana showing CPU, Memory, Pod Count
 
 ## Next Steps
-- Run load tests with k6
-- Set up HPA/VPA for autoscaling
-- Configure CI/CD pipeline
+
+### Run K6 Load Tests
+
+```bash
+cd scripts/
+
+# Option 1: Run load test (14 min, 100 users)
+kubectl apply -f k6-job.yaml -n cse239fall2025
+kubectl logs -f -n cse239fall2025 -l app=k6-load-test
+
+# Option 2: Run stress test (15 min, 600 users)
+kubectl apply -f k6-stress-job.yaml -n cse239fall2025
+kubectl logs -f -n cse239fall2025 -l app=k6-stress-test
+```
+
+### Set up HPA for Autoscaling
+
+```bash
+cd scripts/
+kubectl apply -f hpa-config.yaml -n cse239fall2025
+kubectl get hpa -n cse239fall2025 -w
+```
 
 ---
 

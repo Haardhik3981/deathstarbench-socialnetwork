@@ -21,51 +21,125 @@ data:
     PORT = 9091
     METRICS_PATH = "/metrics"
 
-    def read_cpu_usage():
-        """Read CPU usage from cgroup (in nanoseconds)"""
+    def get_pod_cgroup_path():
+        """Find the pod-level cgroup path by parsing /proc/self/cgroup"""
         try:
-            # Try v2 first (newer systems)
-            cpu_usage_paths = [
-                '/sys/fs/cgroup/cpu.stat',  # v2
-                '/sys/fs/cgroup/cpu/cpuacct.usage',  # v1
-            ]
+            with open('/proc/self/cgroup', 'r') as f:
+                for line in f:
+                    # Format: hierarchy-ID:controller-list:cgroup-path
+                    parts = line.strip().split(':')
+                    if len(parts) >= 3:
+                        cgroup_path = parts[2]
+                        # cgroup_path looks like: /kubepods/burstable/pod<uid>/container-id
+                        # or /kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod<uid>.slice/cri-containerd-<id>.scope
+                        # We want to get to pod level by removing the last component (container)
+                        
+                        if 'pod' in cgroup_path:
+                            # Find pod-level by going to parent of container
+                            # Split by / and reconstruct without last component
+                            path_parts = cgroup_path.rstrip('/').split('/')
+                            # Remove the last component (container ID/scope)
+                            if len(path_parts) > 1:
+                                pod_path = '/'.join(path_parts[:-1])
+                                print(f"Found pod cgroup path: {pod_path}")
+                                return pod_path
+            return None
+        except Exception as e:
+            print(f"Error finding pod cgroup: {e}")
+            return None
+    
+    def read_cpu_usage():
+        """Read CPU usage from POD-LEVEL cgroup (in nanoseconds)"""
+        try:
+            # Get pod-level cgroup path
+            pod_cgroup = get_pod_cgroup_path()
             
-            for path in cpu_usage_paths:
+            # Build possible CPU stat paths
+            cpu_paths = []
+            if pod_cgroup:
+                # cgroup v2 paths
+                cpu_paths.append(f"/sys/fs/cgroup{pod_cgroup}/cpu.stat")
+                cpu_paths.append(f"/sys/fs/cgroup{pod_cgroup}.slice/cpu.stat")
+                # cgroup v1 paths
+                cpu_paths.append(f"/sys/fs/cgroup/cpu{pod_cgroup}/cpuacct.usage")
+                cpu_paths.append(f"/sys/fs/cgroup/cpuacct{pod_cgroup}/cpuacct.usage")
+            
+            # Fallback to container-level if pod-level not found
+            cpu_paths.extend([
+                '/sys/fs/cgroup/cpu.stat',
+                '/sys/fs/cgroup/cpu/cpuacct.usage',
+                '/sys/fs/cgroup/cpuacct/cpuacct.usage'
+            ])
+            
+            for path in cpu_paths:
                 if os.path.exists(path):
-                    if 'cpu.stat' in path:
-                        # v2 format: read user_usec and system_usec
-                        with open(path, 'r') as f:
-                            content = f.read()
-                            user_usec = 0
-                            system_usec = 0
-                            for line in content.split('\n'):
-                                if line.startswith('user_usec'):
-                                    user_usec = int(line.split()[1])
-                                elif line.startswith('system_usec'):
-                                    system_usec = int(line.split()[1])
-                            return (user_usec + system_usec) * 1000  # Convert to nanoseconds
-                    else:
-                        # v1 format
-                        with open(path, 'r') as f:
-                            return int(f.read().strip())
+                    try:
+                        if 'cpu.stat' in path:
+                            # cgroup v2 format
+                            with open(path, 'r') as f:
+                                content = f.read()
+                                user_usec = 0
+                                system_usec = 0
+                                for line in content.split('\n'):
+                                    if line.startswith('user_usec') or line.startswith('usage_usec'):
+                                        user_usec = int(line.split()[1])
+                                    elif line.startswith('system_usec'):
+                                        system_usec = int(line.split()[1])
+                                cpu_ns = (user_usec + system_usec) * 1000
+                                if cpu_ns > 0:
+                                    print(f"Using CPU from: {path} = {cpu_ns} ns ({cpu_ns/1e9:.6f} cores cumulative)")
+                                    return cpu_ns
+                        else:
+                            # cgroup v1 format
+                            with open(path, 'r') as f:
+                                cpu_ns = int(f.read().strip())
+                                if cpu_ns > 0:
+                                    print(f"Using CPU from: {path} = {cpu_ns} ns ({cpu_ns/1e9:.6f} cores cumulative)")
+                                    return cpu_ns
+                    except Exception as e:
+                        print(f"Error reading {path}: {e}")
+                        continue
+            
+            print("Warning: No CPU stats found!")
             return 0
         except Exception as e:
             print(f"Error reading CPU usage: {e}")
             return 0
 
     def read_memory_usage():
-        """Read memory usage from cgroup (in bytes)"""
+        """Read memory usage from POD-LEVEL cgroup (in bytes)"""
         try:
-            # Try v2 first
-            memory_paths = [
-                '/sys/fs/cgroup/memory.current',  # v2
-                '/sys/fs/cgroup/memory/memory.usage_in_bytes',  # v1
-            ]
+            # Get pod-level cgroup path
+            pod_cgroup = get_pod_cgroup_path()
             
-            for path in memory_paths:
+            # Build possible memory paths
+            mem_paths = []
+            if pod_cgroup:
+                # cgroup v2 paths
+                mem_paths.append(f"/sys/fs/cgroup{pod_cgroup}/memory.current")
+                mem_paths.append(f"/sys/fs/cgroup{pod_cgroup}.slice/memory.current")
+                # cgroup v1 paths
+                mem_paths.append(f"/sys/fs/cgroup/memory{pod_cgroup}/memory.usage_in_bytes")
+            
+            # Fallback to container-level if pod-level not found
+            mem_paths.extend([
+                '/sys/fs/cgroup/memory.current',
+                '/sys/fs/cgroup/memory/memory.usage_in_bytes'
+            ])
+            
+            for path in mem_paths:
                 if os.path.exists(path):
-                    with open(path, 'r') as f:
-                        return int(f.read().strip())
+                    try:
+                        with open(path, 'r') as f:
+                            mem_bytes = int(f.read().strip())
+                            if mem_bytes > 0:
+                                print(f"Using Memory from: {path} = {mem_bytes} bytes ({mem_bytes/1024/1024:.2f} Mi)")
+                                return mem_bytes
+                    except Exception as e:
+                        print(f"Error reading {path}: {e}")
+                        continue
+            
+            print("Warning: No memory stats found!")
             return 0
         except Exception as e:
             print(f"Error reading memory usage: {e}")

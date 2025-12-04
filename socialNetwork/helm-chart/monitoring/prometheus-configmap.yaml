@@ -32,6 +32,7 @@ data:
         static_configs:
           - targets:
               # Core services (sidecar exporters on port 9091)
+              - nginx-thrift.cse239fall2025.svc.cluster.local:9091
               - compose-post-service.cse239fall2025.svc.cluster.local:9091
               - home-timeline-service.cse239fall2025.svc.cluster.local:9091
               - user-timeline-service.cse239fall2025.svc.cluster.local:9091

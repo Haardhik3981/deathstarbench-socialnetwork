@@ -1,0 +1,99 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-stress-script
+  namespace: cse239fall2025
+data:
+  stress-test.js: |
+    import http from 'k6/http';
+    import { check, sleep } from 'k6';
+    import { Rate, Counter } from 'k6/metrics';
+
+    const errorRate = new Rate('errors');
+    const BASE_URL = 'http://nginx-thrift:8080';
+
+    export const options = {
+      stages: [
+        { duration: '1m', target: 50 },
+        { duration: '2m', target: 100 },
+        { duration: '2m', target: 200 },
+        { duration: '2m', target: 300 },
+        { duration: '2m', target: 400 },
+        { duration: '2m', target: 500 },
+        { duration: '2m', target: 600 },
+        { duration: '2m', target: 0 },
+      ],
+      thresholds: {
+        http_req_duration: ['p(95)<2000'],
+        errors: ['rate<0.5'],
+      },
+    };
+
+    function randomUserId() {
+      return Math.floor(Math.random() * 962) + 1;
+    }
+
+    export default function () {
+      const userId = randomUserId();
+      const scenario = Math.random();
+      
+      let response;
+      if (scenario < 0.4) {
+        response = http.get(`${BASE_URL}/wrk2-api/home-timeline/read?user_id=${userId}&start=0&stop=10`);
+      } else if (scenario < 0.7) {
+        response = http.get(`${BASE_URL}/wrk2-api/user-timeline/read?user_id=${userId}&start=0&stop=10`);
+      } else if (scenario < 0.9) {
+        response = http.post(
+          `${BASE_URL}/wrk2-api/post/compose`,
+          `user_id=${userId}&username=user_${userId}&text=StressTest&media_ids=[]&media_types=[]&post_type=0`,
+          { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }}
+        );
+      } else {
+        response = http.post(
+          `${BASE_URL}/wrk2-api/user/follow`,
+          `user_id=${userId}&followee_id=${randomUserId()}`,
+          { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }}
+        );
+      }
+      
+      const success = check(response, { 'status is 200': (r) => r.status === 200 });
+      errorRate.add(!success);
+      sleep(0.3);
+    }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6-stress-test
+  namespace: cse239fall2025
+  labels:
+    app: k6-stress-test
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: k6-stress-test
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: k6
+        image: grafana/k6:latest
+        command: ["k6", "run", "/scripts/stress-test.js"]
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "1000m"
+          limits:
+            memory: "2Gi"
+            cpu: "4000m"
+        volumeMounts:
+        - name: k6-scripts
+          mountPath: /scripts
+      volumes:
+      - name: k6-scripts
+        configMap:
+          name: k6-stress-script
+

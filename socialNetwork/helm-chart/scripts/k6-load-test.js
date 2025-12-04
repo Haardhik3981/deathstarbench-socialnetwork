@@ -8,6 +8,7 @@
  * ✅ GET  /wrk2-api/home-timeline/read
  * ✅ GET  /wrk2-api/user-timeline/read  
  * ✅ POST /wrk2-api/post/compose
+ * ✅ POST /wrk2-api/user/register
  * ✅ POST /wrk2-api/user/follow
  * ✅ POST /wrk2-api/user/unfollow
  * 
@@ -42,6 +43,9 @@ export const options = {
     http_req_duration: ['p(95)<500', 'p(99)<1000'], // 95% < 500ms, 99% < 1s
     errors: ['rate<0.1'],                           // Error rate < 10%
   },
+  // Connection settings for better stability with port-forward
+  noConnectionReuse: false,
+  userAgent: 'K6LoadTest/1.0',
 };
 
 // Generate random user ID (1-962 based on Social Network dataset)
@@ -64,13 +68,14 @@ export default function () {
   const scenario = Math.random();
   
   // Scenario distribution:
-  // 40% - Read Home Timeline
+  // 35% - Read Home Timeline
   // 30% - Read User Timeline
   // 15% - Compose Post
   // 10% - Follow User
   // 5%  - Unfollow User
+  // 5%  - Register User
   
-  if (scenario < 0.4) {
+  if (scenario < 0.35) {
     // ========== READ HOME TIMELINE (40%) ==========
     const res = http.get(
       `${BASE_URL}/wrk2-api/home-timeline/read?user_id=${userId}&start=0&stop=10`,
@@ -88,7 +93,7 @@ export default function () {
     errorRate.add(!success);
   }
   
-  else if (scenario < 0.7) {
+  else if (scenario < 0.65) {
     // ========== READ USER TIMELINE (30%) ==========
     const targetUserId = randomUserId();
     const res = http.get(
@@ -107,7 +112,7 @@ export default function () {
     errorRate.add(!success);
   }
   
-  else if (scenario < 0.85) {
+  else if (scenario < 0.80) {
     // ========== COMPOSE POST (15%) ==========
     const postText = randomString(100);
     
@@ -132,7 +137,7 @@ export default function () {
     errorRate.add(!success);
   }
   
-  else if (scenario < 0.95) {
+  else if (scenario < 0.90) {
     // ========== FOLLOW USER (10%) ==========
     const followeeId = randomUserId();
     
@@ -156,7 +161,7 @@ export default function () {
     errorRate.add(!success);
   }
   
-  else {
+  else if (scenario < 0.95) {
     // ========== UNFOLLOW USER (5%) ==========
     const followeeId = randomUserId();
     
@@ -172,6 +177,29 @@ export default function () {
     const success = check(res, {
       'unfollow status is 200': (r) => r.status === 200,
       'unfollow success': (r) => r.body && r.body.includes('Success'),
+    });
+    
+    if (success) successfulRequests.add(1);
+    errorRate.add(!success);
+  }
+  
+  else {
+    // ========== REGISTER USER (5%) ==========
+    const newUserId = Math.floor(Math.random() * 100000) + 10000;
+    const username = `testuser_${newUserId}`;
+    
+    const res = http.post(
+      `${BASE_URL}/wrk2-api/user/register`,
+      `first_name=Test&last_name=User&username=${username}&password=testpass&user_id=${newUserId}`,
+      {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        tags: { name: 'RegisterUser' },
+      }
+    );
+    
+    const success = check(res, {
+      'register status is 200': (r) => r.status === 200,
+      'register success': (r) => r.body && r.body.includes('Success'),
     });
     
     if (success) successfulRequests.add(1);
