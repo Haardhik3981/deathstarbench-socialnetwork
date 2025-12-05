@@ -6,16 +6,6 @@ metadata:
   name: {{ .Values.name }}
   labels:
     service: {{ .Values.name }}
-  {{- if .Values.global.prometheus.enabled }}
-  annotations:
-    prometheus.io/scrape: "true"
-    prometheus.io/path: {{ .Values.global.prometheus.path | quote }}
-    prometheus.io/port: {{ .Values.global.prometheus.port | quote }}
-    prometheus.io/scheme: {{ .Values.global.prometheus.scheme | default "http" | quote }}
-    {{- if .Values.global.prometheus.interval }}
-    prometheus.io/interval: {{ .Values.global.prometheus.interval | quote }}
-    {{- end }}
-  {{- end }}
 spec:
   type: {{ .Values.type | default .Values.global.serviceType }}
   ports:
@@ -26,13 +16,6 @@ spec:
     {{- if .protocol }}
     protocol: {{ .protocol }}
     {{- end }}
-  {{- end }}
-  {{- if .Values.global.prometheus.enabled }}
-  # Metrics port for Prometheus sidecar exporter
-  - name: metrics
-    port: 9091
-    targetPort: 9091
-    protocol: TCP
   {{- end }}
   selector:
     service: {{ .Values.name }}

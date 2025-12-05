@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: cse239fall2025
+  labels:
+    app: prometheus
+data:
+  prometheus.yml: |-
+    global:
+      scrape_interval: 10s
+      scrape_timeout: 10s
+      evaluation_interval: 10s
+
+    scrape_configs:
+      # -------------------------------------------------------
+      # 1) Prometheus self-monitoring
+      # -------------------------------------------------------
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
+      # -------------------------------------------------------
+      # 2) Nginx-thrift Frontend - HTTP request metrics
+      #    Static target since we can't use Kubernetes SD on Nautilus
+      # -------------------------------------------------------
+      - job_name: 'nginx-frontend'
+        static_configs:
+          - targets: ['nginx-thrift.cse239fall2025.svc.cluster.local:9091']
+            labels:
+              service: 'nginx-thrift'
+              namespace: 'cse239fall2025'
+        metrics_path: /metrics
+        scrape_interval: 10s
+
+      # -------------------------------------------------------
+      # 3) Pushgateway - for batch jobs and kubectl top metrics
+      # -------------------------------------------------------
+      - job_name: 'pushgateway'
+        honor_labels: true
+        static_configs:
+          - targets: ['pushgateway.cse239fall2025.svc.cluster.local:9091']
+            labels:
+              namespace: 'cse239fall2025'
+

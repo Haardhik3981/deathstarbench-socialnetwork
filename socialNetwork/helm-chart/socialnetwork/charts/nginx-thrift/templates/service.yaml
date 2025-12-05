@@ -1,2 +1,2 @@
-{{ include "socialnetwork.templates.baseService" . }}
+{{ include "socialnetwork.templates.baseNginxService" . }}
  

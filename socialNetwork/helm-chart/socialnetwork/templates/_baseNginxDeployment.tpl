@@ -73,25 +73,18 @@ spec:
         {{- end }}
       {{- end }}
       {{- if $.Values.global.prometheus.enabled }}
-      # Prometheus metrics exporter sidecar
-      # Exposes pod-level metrics on /metrics endpoint (port 9091)
-      - name: prometheus-exporter
-        image: python:3.11-alpine
-        command:
-          - python3
-          - /metrics-server.py
+      # Nginx Prometheus Exporter sidecar
+      # Scrapes nginx stub_status and exposes as Prometheus metrics on port 9091
+      - name: nginx-prometheus-exporter
+        image: nginx/nginx-prometheus-exporter:1.1.0
+        args:
+          - "-nginx.scrape-uri=http://localhost:8080/nginx_status"
+          - "-web.listen-address=:9091"
+          - "-web.telemetry-path=/metrics"
         ports:
         - containerPort: 9091
           name: metrics
-        env:
-        - name: HOSTNAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        - name: POD_NAMESPACE
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
+          protocol: TCP
         resources:
           requests:
             cpu: 10m
@@ -99,10 +92,18 @@ spec:
           limits:
             cpu: 50m
             memory: 64Mi
-        volumeMounts:
-        - name: metrics-script
-          mountPath: /metrics-server.py
-          subPath: metrics-server.py
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 9091
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 9091
+          initialDelaySeconds: 5
+          periodSeconds: 10
       {{- end }}
 
       initContainers:
