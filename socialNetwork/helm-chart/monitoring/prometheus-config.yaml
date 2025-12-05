@@ -22,7 +22,7 @@ data:
 
       # -------------------------------------------------------
       # 2) Nginx-thrift Frontend - HTTP request metrics
-      #    Static target since we can't use Kubernetes SD on Nautilus
+      #    Exports: nginx_http_requests_total, nginx_connections_active, etc.
       # -------------------------------------------------------
       - job_name: 'nginx-frontend'
         static_configs:
@@ -34,7 +34,9 @@ data:
         scrape_interval: 10s
 
       # -------------------------------------------------------
-      # 3) Pushgateway - for batch jobs and kubectl top metrics
+      # 3) Pushgateway - for kubectl top metrics and k6 results
+      #    Exports: ha_cpu_usage_millicores, ha_memory_usage_bytes
+      #    honor_labels: true preserves pod/container labels from pushed metrics
       # -------------------------------------------------------
       - job_name: 'pushgateway'
         honor_labels: true
@@ -42,4 +44,4 @@ data:
           - targets: ['pushgateway.cse239fall2025.svc.cluster.local:9091']
             labels:
               namespace: 'cse239fall2025'
-
+        scrape_interval: 10s

@@ -1,13 +1,13 @@
-# Commands Only - Start from Scratch
+# Commands Only - Complete Setup Guide
 
-**Copy-paste these commands in order. No explanations, just commands.**
+**Copy-paste these commands in order.**
 
 ---
 
-## Step 1: Cleanup
+## Step 1: Cleanup (Optional - if redeploying)
 
 ```bash
-cd /Users/haardhikmudagereanil/Downloads/MSCS\ -\ UCSC/Q4/CSE239_AdvCloudComputing/Project/DeathStarBench_project_root/DeathStarBench/socialNetwork/helm-chart
+cd "/Users/haardhikmudagereanil/Downloads/MSCS - UCSC/Q4/CSE239_AdvCloudComputing/Project/DeathStarBench_project_root/DeathStarBench/socialNetwork/helm-chart"
 
 helm uninstall dsb-socialnetwork -n cse239fall2025 2>/dev/null || true
 
@@ -19,6 +19,7 @@ kubectl delete -f monitoring/pushgateway-deployment.yaml -n cse239fall2025 2>/de
 
 kubectl get pods -n cse239fall2025 --no-headers | grep -E "(Error|Terminating)" | awk '{print $1}' | xargs -I {} kubectl delete pod {} -n cse239fall2025 --force --grace-period=0 2>/dev/null || true
 
+sleep 10
 kubectl get pods -n cse239fall2025
 ```
 
@@ -31,192 +32,150 @@ cd socialnetwork
 
 helm install dsb-socialnetwork . -n cse239fall2025 --set global.prometheus.enabled=true
 
-sleep 30
+# Wait for pods to be ready
 kubectl get pods -n cse239fall2025 -w
-# Press Ctrl+C when all Running
+# Press Ctrl+C when all pods show Running
 ```
 
 ---
 
-## Step 3: Edit Grafana Hostname
+## Step 3: Deploy Monitoring Stack
 
 ```bash
 cd ../monitoring
 
-# EDIT THIS: Replace YOURNAME with your actual name
-#sed -i '' 's/grafana-haardhik/grafana-YOURNAME/g' grafana.yaml
+kubectl apply -f prometheus-config.yaml -n cse239fall2025
+kubectl apply -f prometheus.yaml -n cse239fall2025
+kubectl apply -f pushgateway-deployment.yaml -n cse239fall2025
+kubectl apply -f grafana-datasources.yaml -n cse239fall2025
+kubectl apply -f grafana.yaml -n cse239fall2025
 
-# Or edit manually:
-# vim grafana.yaml
-# Change: grafana-haardhik.nrp-nautilus.io
-# To: grafana-YOURNAME.nrp-nautilus.io
-```
-
----
-
-## Step 4: Deploy Monitoring
-
-```bash
-kubectl apply -f prometheus-config.yaml
-kubectl apply -f prometheus.yaml
-kubectl apply -f grafana-datasources.yaml
-kubectl apply -f grafana.yaml
-kubectl apply -f pushgateway-deployment.yaml
-
-#kubectl wait --for=condition=ready pod -l app=prometheus -n cse239fall2025 --timeout=120s
-#kubectl wait --for=condition=ready pod -l app=grafana -n cse239fall2025 --timeout=120s
-
+# Verify monitoring pods
 kubectl get pods -n cse239fall2025 | grep -E "(prometheus|grafana|pushgateway)"
-#kubectl get ingress grafana-ingress -n cse239fall2025: grafana-haardhik.nrp-nautilus.io
 ```
 
 ---
 
-## Step 5: Access Grafana
+## Step 4: Port-Forward Services (3 Terminals)
 
+**Terminal 1 - Prometheus:**
 ```bash
-# Get Grafana URL
-kubectl get ingress grafana-ingress -n cse239fall2025 -o jsonpath='{.spec.rules[0].host}' && echo
-
-# Open in browser: https://grafana-YOURNAME.nrp-nautilus.io
-# Login: admin / admin
+kubectl port-forward svc/prometheus 9090:9090 -n cse239fall2025
 ```
 
----
-
-## Step 6: Verify Prometheus Targets
-
+**Terminal 2 - Grafana:** #Optional | Access at grafana-haardhik.nrp-nautilus.io
 ```bash
-# Port-forward Prometheus (Terminal 1)
-kubectl port-forward -n cse239fall2025 svc/prometheus 9090:9090
-
-# Open: http://localhost:9090/targets
-# Should see:
-# - prometheus (UP)
-# - nginx-frontend (UP)
-# - pushgateway (UP)
+kubectl port-forward svc/grafana 3000:3000 -n cse239fall2025
 ```
 
----
-
-## Step 7: Test Metrics in Grafana
-
-```
-Go to Grafana → Explore
-
-Query 1: up{job="nginx-frontend"}
-Expected: 1
-
-Query 2: nginx_http_requests_total
-Expected: a number
-
-Query 3: rate(nginx_http_requests_total[1m])
-Expected: 0.0 or higher
-
-Query 4: nginx_connections_active
-Expected: 1-10
-```
-
----
-
-## Step 8: Generate Test Traffic
-
+**Terminal 3 - Pushgateway:**
 ```bash
-# Terminal 1: Port-forward nginx
-kubectl port-forward -n cse239fall2025 deployment/nginx-thrift 8080:8080 &
-
-# Terminal 2: Generate requests
-for i in {1..100}; do curl -s http://localhost:8080/ > /dev/null; echo "Request $i"; sleep 0.1; done
-
-# In Grafana, query this and watch it spike:
-# rate(nginx_http_requests_total[30s])
-
-pkill -f "port-forward.*8080"
+kubectl port-forward svc/pushgateway 9091:9091 -n cse239fall2025
 ```
 
 ---
 
-## Step 9: Create Dashboard
+## Step 5: Import Grafana Dashboard
 
-```
-In Grafana:
-
-1. Click + → Dashboard
-2. Add visualization
-3. Query: rate(nginx_http_requests_total[1m])
-4. Title: Request Rate
-5. Apply
-6. Save dashboard as: "Social Network Performance"
-```
+1. Open http://localhost:3000
+2. Login: `admin` / `admin`
+3. Go to: **Dashboards → Import**
+4. Click **Upload JSON file**
+5. Select: `monitoring/grafana-dashboard.json`
+6. Click **Import**
 
 ---
 
-## Step 10: Run Stress Test
+## Step 6: Start Metrics Collector
 
+**Terminal 4 - Metrics Collector:**
 ```bash
-cd ../scripts
+cd "/Users/haardhikmudagereanil/Downloads/MSCS - UCSC/Q4/CSE239_AdvCloudComputing/Project/DeathStarBench_project_root/DeathStarBench/socialNetwork/helm-chart/scripts"
 
-kubectl apply -f k6-configmap.yaml -n cse239fall2025
-kubectl apply -f k6-stress-job.yaml -n cse239fall2025
-
-# Watch logs
-kubectl logs -f -n cse239fall2025 -l app=k6-stress-test
-
-# While test runs, watch Grafana dashboard!
+./push-metrics-loop.sh 10
 ```
+
+This pushes CPU/Memory metrics every 10 seconds for these 11 microservices:
+- nginx-thrift
+- compose-post-service
+- home-timeline-service
+- user-timeline-service
+- post-storage-service
+- social-graph-service
+- text-service
+- user-service
+- unique-id-service
+- url-shorten-service
+- user-mention-service
 
 ---
 
-## Step 11: Extract Latency and CPU/Memory Metrics (After Test)
+## Step 7: Run Load Tests
 
 ```bash
 cd scripts
 
-# Extract latency, CPU, and memory metrics from k6 logs
-bash push-k6-metrics.sh
+# Deploy K6 test scripts
+kubectl apply -f k6-configmap.yaml -n cse239fall2025
 
-# Collect current CPU/memory using kubectl top
-bash collect-resource-metrics.sh
+# Run Load Test (14 min, 100 users)
+kubectl apply -f k6-job.yaml -n cse239fall2025
+kubectl logs -f -n cse239fall2025 -l app=k6-load-test
+
+# OR Run Stress Test (15 min, 600 users)
+kubectl delete job k6-load-test -n cse239fall2025 2>/dev/null || true
+kubectl apply -f k6-stress-job.yaml -n cse239fall2025
+kubectl logs -f -n cse239fall2025 -l app=k6-stress-test
 ```
 
 ---
 
-## Step 12: Query Performance Metrics in Grafana
+## Step 8: View Metrics in Grafana
 
-```
-Query these in Grafana Explore:
+Open http://localhost:3000 and view the dashboard:
 
-Latency:
-- k6_latency_avg_ms{job="k6-stress-test"}
-- k6_latency_p95_ms{job="k6-stress-test"}
-- k6_latency_p99_ms{job="k6-stress-test"}
+**Available Metrics:**
 
-CPU/Memory:
-- pod_cpu_usage_cores{pod=~".*service.*"}
-- pod_memory_usage_bytes{pod=~".*service.*"}
-
-Request Rate:
-- rate(nginx_http_requests_total[1m])
-```
+| Panel | Metric | Source |
+|-------|--------|--------|
+| CPU Usage | `ha_cpu_usage_millicores` | Pushgateway |
+| Memory Usage | `ha_memory_usage_bytes / 1024 / 1024` | Pushgateway |
+| Request Rate | `rate(nginx_http_requests_total[1m])` | nginx |
+| Throughput | `sum(rate(nginx_http_requests_total[30s]))` | nginx |
+| Active Connections | `nginx_connections_active` | nginx |
 
 ---
 
 ## Cleanup (When Done)
 
 ```bash
+# Stop all port-forwards (Ctrl+C in each terminal)
+
+# Delete K6 jobs
+kubectl delete job k6-load-test k6-stress-test k6-spike-test k6-soak-test -n cse239fall2025 2>/dev/null || true
+
+# Delete monitoring
 cd monitoring
+kubectl delete -f grafana.yaml -n cse239fall2025
+kubectl delete -f grafana-datasources.yaml -n cse239fall2025
+kubectl delete -f prometheus.yaml -n cse239fall2025
+kubectl delete -f prometheus-config.yaml -n cse239fall2025
+kubectl delete -f pushgateway-deployment.yaml -n cse239fall2025
 
+# Delete application
 helm uninstall dsb-socialnetwork -n cse239fall2025
-kubectl delete -f grafana.yaml
-kubectl delete -f grafana-datasources.yaml
-kubectl delete -f prometheus.yaml
-kubectl delete -f prometheus-config.yaml
-kubectl delete -f pushgateway-deployment.yaml
 
+# Verify cleanup
 kubectl get pods -n cse239fall2025
 ```
 
 ---
 
-**That's it! All commands in order from cleanup to performance analysis.**
+## Quick Reference
 
+| Service | Port-Forward | URL |
+|---------|--------------|-----|
+| Grafana | `kubectl port-forward svc/grafana 3000:3000 -n cse239fall2025` | http://localhost:3000 |
+| Prometheus | `kubectl port-forward svc/prometheus 9090:9090 -n cse239fall2025` | http://localhost:9090 |
+| Pushgateway | `kubectl port-forward svc/pushgateway 9091:9091 -n cse239fall2025` | http://localhost:9091 |
+| Application | `kubectl port-forward svc/nginx-thrift 8080:8080 -n cse239fall2025` | http://localhost:8080 |

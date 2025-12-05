@@ -1,187 +1,150 @@
-# Social Network Load Testing Scripts
+# Scripts - Load Testing & Metrics Collection
 
-This directory contains load testing scripts and autoscaler configurations for the Social Network application.
+Scripts for load testing and metrics collection for the Social Network application.
 
-## Prerequisites
+---
 
-1. **Install k6** (load testing tool):
-   ```bash
-   # macOS
-   brew install k6
-   
-   # Linux
-   sudo gpg -k
-   sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
-   echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
-   sudo apt-get update
-   sudo apt-get install k6
-   ```
+## Files
 
-2. **Port-forward the application**:
-   ```bash
-   kubectl port-forward deployment/nginx-thrift 8080:8080 -n cse239fall2025
-   ```
+### Metrics Collection
 
-3. **Start the metrics pusher** (for Grafana monitoring):
-   ```bash
-   kubectl port-forward svc/pushgateway 9091:9091 -n cse239fall2025
-   ../push-metrics.sh
-   ```
+| File | Description |
+|------|-------------|
+| `push-metrics-loop.sh` | Continuously collects CPU/Memory and pushes to Pushgateway |
 
-## Quick Start
+### K6 Load Tests
 
-Use the interactive runner script:
+| File | Description |
+|------|-------------|
+| `k6-load-test.js` | Load test (100 users, 14 min) |
+| `k6-stress-test.js` | Stress test (600 users, 15 min) |
+| `k6-spike-test.js` | Spike test (500 users, 10 min) |
+| `k6-soak-test.js` | Soak test (75 users, 30 min) |
 
+### K6 Kubernetes Jobs
+
+| File | Description |
+|------|-------------|
+| `k6-configmap.yaml` | ConfigMap with load test script |
+| `k6-job.yaml` | Job for load test |
+| `k6-stress-job.yaml` | Job for stress test |
+| `k6-spike-job.yaml` | Job for spike test |
+| `k6-soak-job.yaml` | Job for soak test |
+
+### Autoscaling
+
+| File | Description |
+|------|-------------|
+| `hpa-config.yaml` | Horizontal Pod Autoscaler configuration |
+
+---
+
+## Metrics Collection
+
+### Prerequisites
+
+Port-forward Pushgateway:
 ```bash
-chmod +x run-tests.sh
-./run-tests.sh
+kubectl port-forward svc/pushgateway 9091:9091 -n cse239fall2025
 ```
 
-Or run specific commands:
+### Run Metrics Collector
 
 ```bash
-./run-tests.sh prereq      # Check prerequisites
-./run-tests.sh hpa         # Apply HPA
-./run-tests.sh vpa         # Apply VPA
-./run-tests.sh load        # Run load test
-./run-tests.sh stress      # Run stress test
-./run-tests.sh soak        # Run soak test
-./run-tests.sh watch-hpa   # Watch HPA scaling
-./run-tests.sh watch-pods  # Watch pod status
+./push-metrics-loop.sh 10
 ```
 
-## Test Types
+This collects CPU/Memory every 10 seconds for these 11 microservices:
+- nginx-thrift
+- compose-post-service
+- home-timeline-service
+- user-timeline-service
+- post-storage-service
+- social-graph-service
+- text-service
+- user-service
+- unique-id-service
+- url-shorten-service
+- user-mention-service
 
-### 1. Load Test (`k6-load-test.js`)
-- **Purpose**: Test normal expected load conditions
-- **Duration**: ~14 minutes
-- **Load Pattern**: 
-  - Ramp to 50 users (2 min)
-  - Sustain 50 users (5 min)
-  - Ramp to 100 users (2 min)
-  - Sustain 100 users (3 min)
-  - Ramp down (2 min)
+### Metrics Pushed
+
+| Metric | Description |
+|--------|-------------|
+| `ha_cpu_usage_millicores` | CPU usage in millicores |
+| `ha_memory_usage_bytes` | Memory usage in bytes |
+
+---
+
+## Load Testing
+
+### Run K6 Tests (In-Cluster)
 
 ```bash
-k6 run k6-load-test.js
+# Deploy test scripts
+kubectl apply -f k6-configmap.yaml -n cse239fall2025
+
+# Run Load Test
+kubectl apply -f k6-job.yaml -n cse239fall2025
+kubectl logs -f -n cse239fall2025 -l app=k6-load-test
+
+# Run Stress Test
+kubectl delete job k6-load-test -n cse239fall2025 2>/dev/null || true
+kubectl apply -f k6-stress-job.yaml -n cse239fall2025
+kubectl logs -f -n cse239fall2025 -l app=k6-stress-test
+
+# Run Spike Test
+kubectl delete job k6-stress-test -n cse239fall2025 2>/dev/null || true
+kubectl apply -f k6-spike-job.yaml -n cse239fall2025
+kubectl logs -f -n cse239fall2025 -l app=k6-spike-test
+
+# Run Soak Test
+kubectl delete job k6-spike-test -n cse239fall2025 2>/dev/null || true
+kubectl apply -f k6-soak-job.yaml -n cse239fall2025
+kubectl logs -f -n cse239fall2025 -l app=k6-soak-test
 ```
 
-### 2. Stress Test (`k6-stress-test.js`)
-- **Purpose**: Find the breaking point of the system
-- **Duration**: ~15 minutes
-- **Load Pattern**: Aggressive ramp from 50 → 600 users
+### Test Summary
+
+| Test | Duration | Max Users | Purpose |
+|------|----------|-----------|---------|
+| Load | 14 min | 100 | Baseline performance |
+| Stress | 15 min | 600 | Find breaking point |
+| Spike | 10 min | 500 | Traffic bursts |
+| Soak | 30 min | 75 | Memory leak detection |
+
+---
+
+## Autoscaling (HPA)
 
 ```bash
-k6 run k6-stress-test.js
-```
-
-### 3. Soak Test (`k6-soak-test.js`)
-- **Purpose**: Test system stability over extended period
-- **Duration**: ~30 minutes
-- **Load Pattern**: Sustained 75 users
-
-```bash
-k6 run k6-soak-test.js
-```
-
-## Autoscaler Configuration
-
-### Horizontal Pod Autoscaler (HPA)
-
-```bash
+# Apply HPA
 kubectl apply -f hpa-config.yaml -n cse239fall2025
+
+# Watch HPA
+kubectl get hpa -n cse239fall2025 -w
 ```
 
-Configured for:
+HPA configured for:
 - compose-post-service (1-5 replicas)
 - home-timeline-service (1-5 replicas)
 - user-timeline-service (1-5 replicas)
 - nginx-thrift (1-3 replicas)
 - post-storage-service (1-5 replicas)
 
-**Trigger**: CPU utilization > 70%
+Trigger: CPU > 70%
 
-### Vertical Pod Autoscaler (VPA)
+---
+
+## Cleanup
 
 ```bash
-kubectl apply -f vpa-config.yaml -n cse239fall2025
+# Delete K6 jobs
+kubectl delete job k6-load-test k6-stress-test k6-spike-test k6-soak-test -n cse239fall2025 2>/dev/null || true
+
+# Delete ConfigMap
+kubectl delete configmap k6-scripts -n cse239fall2025 2>/dev/null || true
+
+# Delete HPA
+kubectl delete -f hpa-config.yaml -n cse239fall2025 2>/dev/null || true
 ```
-
-**Note**: VPA requires the VPA controller to be installed in the cluster.
-
-Check if available:
-```bash
-kubectl get crd | grep verticalpodautoscalers
-```
-
-## Monitoring During Tests
-
-1. **Grafana Dashboard** (http://localhost:3000):
-   - Watch CPU/Memory usage in real-time
-   - See pod count changes when HPA triggers
-
-2. **Watch HPA scaling**:
-   ```bash
-   kubectl get hpa -n cse239fall2025 -w
-   ```
-
-3. **Watch pod status**:
-   ```bash
-   kubectl get pods -n cse239fall2025 -w
-   ```
-
-4. **View HPA events**:
-   ```bash
-   kubectl describe hpa -n cse239fall2025
-   ```
-
-## Expected Results
-
-### Load Test
-- p95 latency < 500ms
-- Error rate < 10%
-- Throughput: 50-100 req/s
-
-### Stress Test
-- Find breaking point (where errors > 10%)
-- Observe latency degradation
-- Watch HPA scale up pods
-
-### Soak Test
-- Error rate should stay < 5%
-- Latency should remain stable
-- Memory should not continuously grow
-
-## Output Files
-
-After each test, results are saved to:
-- `load-test-results.json`
-- `stress-test-results.json`
-- `soak-test-results.json`
-
-## Troubleshooting
-
-### k6: command not found
-```bash
-brew install k6
-```
-
-### Connection refused
-Make sure port-forward is running:
-```bash
-kubectl port-forward deployment/nginx-thrift 8080:8080 -n cse239fall2025
-```
-
-### HPA not scaling
-1. Check if metrics-server is available:
-   ```bash
-   kubectl top pods -n cse239fall2025
-   ```
-2. Check HPA status:
-   ```bash
-   kubectl describe hpa <name> -n cse239fall2025
-   ```
-
-### VPA not working
-VPA controller may not be installed on Nautilus. Use HPA instead.
-
