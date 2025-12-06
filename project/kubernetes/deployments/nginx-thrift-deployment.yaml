@@ -63,11 +63,24 @@ spec:
           value: ".default.svc.cluster.local"
         resources:
           requests:
-            cpu: 100m  # Reduced from 200m for development/testing
+            cpu: 200m  # Increased from 100m for better ingress performance
             memory: 128Mi  # Reduced from 256Mi for development/testing
           limits:
             cpu: 1000m
             memory: 512Mi
+        
+        # Readiness probe: checks if nginx-thrift is ready to receive HTTP traffic
+        # Uses HTTP GET on port 8080 to verify service is ready
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 10   # Start checking after 5 seconds
+          periodSeconds: 5         # Check every 5 seconds
+          timeoutSeconds: 2       # Timeout after 2 seconds
+          successThreshold: 1     # 1 success = ready
+          failureThreshold: 3     # 3 failures = not ready
+        
         # Health check - TEMPORARILY DISABLED to see actual errors
         # livenessProbe:
         #   httpGet:
@@ -75,12 +88,6 @@ spec:
         #     port: 8080
         #   initialDelaySeconds: 30
         #   periodSeconds: 30
-        # readinessProbe:
-        #   httpGet:
-        #     path: /
-        #     port: 8080
-        #   initialDelaySeconds: 10
-        #   periodSeconds: 10
         # Mount configuration files from ConfigMaps
         volumeMounts:
         # Main nginx configuration file (FIXED: correct path for OpenResty)

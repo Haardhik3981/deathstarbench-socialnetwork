@@ -1,0 +1,85 @@
+# Kubernetes Deployment for Write Home Timeline Service (DeathStarBench)
+#
+# WHAT THIS DOES:
+# Consumes messages from RabbitMQ and updates home timeline Redis cache.
+# This is an async worker that processes home timeline updates.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: write-home-timeline-service-deployment
+  namespace: default
+  labels:
+    app: write-home-timeline-service
+    component: backend
+    microservice: deathstarbench
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: write-home-timeline-service
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: write-home-timeline-service
+        component: backend
+        microservice: deathstarbench
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      containers:
+      - name: write-home-timeline-service
+        image: us-central1-docker.pkg.dev/cse239-479821/social-network-images/social-network-microservices:latest
+        imagePullPolicy: IfNotPresent
+        # NOTE: WriteHomeTimelineService is commented out in CMakeLists.txt, so the binary
+        # may not exist in the image. If this fails, the service is optional and can be
+        # scaled down: kubectl scale deployment write-home-timeline-service-deployment --replicas=0
+        # Try without explicit command first - image might have a default entrypoint
+        # command: ["WriteHomeTimelineService"]
+        ports:
+        - containerPort: 9090
+          name: thrift
+          protocol: TCP
+        env:
+        - name: SERVICE_NAME
+          value: "write-home-timeline-service"
+        volumeMounts:
+        - name: config
+          mountPath: /social-network-microservices/config/jaeger-config.yml
+          subPath: jaeger-config.yml
+          readOnly: true
+        - name: config
+          mountPath: /social-network-microservices/config/service-config.json
+          subPath: service-config.json
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+        
+        # Readiness probe: checks if service is ready to receive traffic
+        # Uses netstat/ss to verify port 9090 is listening
+        readinessProbe:
+          exec:
+            command: ["/bin/sh", "-c", "netstat -an | grep 9090 || ss -an | grep 9090"]
+          initialDelaySeconds: 5   # Start checking after 5 seconds
+          periodSeconds: 5          # Check every 5 seconds
+          timeoutSeconds: 2        # Timeout after 2 seconds
+          successThreshold: 1      # 1 success = ready
+          failureThreshold: 3     # 3 failures = not ready
+      volumes:
+      - name: config
+        configMap:
+          name: deathstarbench-config
+      restartPolicy: Always
+

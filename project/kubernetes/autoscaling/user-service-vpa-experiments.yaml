@@ -31,7 +31,7 @@ spec:
     name: user-service-deployment
   
   updatePolicy:
-    updateMode: "Off" # "Off" means VPA will only provide recommendations.
+    updateMode: "Recreate" # "Recreate" means VPA will automatically update pods with new resources
 
   resourcePolicy:
     containerPolicies:

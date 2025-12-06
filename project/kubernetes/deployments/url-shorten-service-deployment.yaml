@@ -62,6 +62,17 @@ spec:
           limits:
             cpu: 1000m
             memory: 512Mi
+        
+        # Readiness probe: checks if service is ready to receive traffic
+        # Uses netstat/ss to verify port 9090 is listening
+        readinessProbe:
+          exec:
+            command: ["/bin/sh", "-c", "pgrep -f UrlShortenService > /dev/null"]
+          initialDelaySeconds: 10   # Start checking after 5 seconds
+          periodSeconds: 5          # Check every 5 seconds
+          timeoutSeconds: 2        # Timeout after 2 seconds
+          successThreshold: 1      # 1 success = ready
+          failureThreshold: 3     # 3 failures = not ready
       volumes:
       - name: config
         configMap:

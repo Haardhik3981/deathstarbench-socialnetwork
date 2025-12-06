@@ -1,0 +1,81 @@
+# Kubernetes Deployment for URL Shorten Service (DeathStarBench)
+#
+# WHAT THIS DOES:
+# Shortens URLs in posts. Connects to url-shorten-mongodb and url-shorten-memcached.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: url-shorten-service-deployment
+  namespace: default
+  labels:
+    app: url-shorten-service
+    component: backend
+    microservice: deathstarbench
+spec:
+  replicas: 1  # Reduced from 2 for development/testing to save CPU resources
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0  # With 1 replica, we can't allow unavailability
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: url-shorten-service
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: url-shorten-service
+        component: backend
+        microservice: deathstarbench
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      containers:
+      - name: url-shorten-service
+        image: us-central1-docker.pkg.dev/cse239-479821/social-network-images/social-network-microservices:latest
+        imagePullPolicy: IfNotPresent
+        # Binaries are installed to /usr/local/bin/ by make install
+        command: ["/usr/local/bin/UrlShortenService"]
+        ports:
+        - containerPort: 9090
+          name: thrift
+          protocol: TCP
+        env:
+        - name: SERVICE_NAME
+          value: "url-shorten-service"
+        volumeMounts:
+        - name: config
+          mountPath: /social-network-microservices/config/jaeger-config.yml
+          subPath: jaeger-config.yml
+          readOnly: true
+        - name: config
+          mountPath: /social-network-microservices/config/service-config.json
+          subPath: service-config.json
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m  # Reduced from 200m for development/testing
+            memory: 128Mi  # Reduced from 256Mi for development/testing
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+        
+        # Readiness probe: checks if service is ready to receive traffic
+        # Uses netstat/ss to verify port 9090 is listening
+        readinessProbe:
+          exec:
+            command: ["/bin/sh", "-c", "netstat -an | grep 9090 || ss -an | grep 9090"]
+          initialDelaySeconds: 5   # Start checking after 5 seconds
+          periodSeconds: 5          # Check every 5 seconds
+          timeoutSeconds: 2        # Timeout after 2 seconds
+          successThreshold: 1      # 1 success = ready
+          failureThreshold: 3     # 3 failures = not ready
+      volumes:
+      - name: config
+        configMap:
+          name: deathstarbench-config
+      restartPolicy: Always
+

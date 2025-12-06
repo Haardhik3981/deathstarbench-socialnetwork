@@ -58,11 +58,22 @@ spec:
           readOnly: true
         resources:
           requests:
-            cpu: 100m  # Reduced from 200m for development/testing
+            cpu: 200m  # Increased from 100m for better performance under load
             memory: 128Mi  # Reduced from 256Mi for development/testing
           limits:
             cpu: 1000m
             memory: 512Mi
+        
+        # Readiness probe: checks if service is ready to receive traffic
+        # Uses netstat/ss to verify port 9090 is listening
+        readinessProbe:
+          exec:
+            command: ["/bin/sh", "-c", "pgrep -f SocialGraphService > /dev/null"]
+          initialDelaySeconds: 10   # Start checking after 5 seconds
+          periodSeconds: 5        # Check every 5 seconds
+          timeoutSeconds: 2       # Timeout after 2 seconds
+          successThreshold: 1     # 1 success = ready
+          failureThreshold: 3     # 3 failures = not ready
       volumes:
       - name: config
         configMap:

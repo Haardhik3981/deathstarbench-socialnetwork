@@ -8,11 +8,12 @@
 # results.
 #
 # USAGE:
+#   ./run-k6-tests.sh quick-test      - Quick 20-second validation test (run this first!)
 #   ./run-k6-tests.sh constant-load
 #   ./run-k6-tests.sh peak-test
 #   ./run-k6-tests.sh stress-test
 #   ./run-k6-tests.sh endurance-test
-#   ./run-k6-tests.sh all
+#   ./run-k6-tests.sh all             - Runs quick-test first, then other tests
 
 set -e
 
@@ -144,8 +145,10 @@ run_test() {
 # Run all tests
 run_all_tests() {
     print_info "Running all k6 tests..."
+    print_info "Starting with quick-test for validation..."
     
-    local tests=("constant-load" "peak-test" "stress-test")
+    # Run quick-test first for validation
+    local tests=("quick-test" "constant-load" "peak-test" "stress-test")
     
     for test in "${tests[@]}"; do
         echo ""
@@ -157,7 +160,10 @@ run_all_tests() {
         run_test "${test}"
         
         # Wait between tests to let system recover
-        if [ "${test}" != "stress-test" ]; then
+        if [ "${test}" = "quick-test" ]; then
+            print_info "Quick test completed. Waiting 30 seconds before next test..."
+            sleep 30
+        elif [ "${test}" != "stress-test" ]; then
             print_info "Waiting 2 minutes before next test..."
             sleep 120
         fi
@@ -175,7 +181,7 @@ main() {
     create_results_dir
     
     case "${TEST_TYPE}" in
-        constant-load|peak-test|stress-test|endurance-test)
+        quick-test|constant-load|peak-test|stress-test|endurance-test)
             run_test "${TEST_TYPE}"
             ;;
         all)
@@ -187,11 +193,12 @@ main() {
             echo "Usage: $0 [test-type]"
             echo ""
             echo "Test types:"
+            echo "  quick-test     - Quick 20-second validation test (run this first!)"
             echo "  constant-load  - Constant steady load test"
             echo "  peak-test      - Sudden traffic spike test"
             echo "  stress-test    - Gradual ramp-up stress test"
             echo "  endurance-test - Long-duration soak test"
-            echo "  all            - Run all tests (except endurance)"
+            echo "  all            - Run all tests (quick-test first, then others)"
             echo ""
             echo "Environment variables:"
             echo "  BASE_URL - Target URL (auto-detected if not set)"

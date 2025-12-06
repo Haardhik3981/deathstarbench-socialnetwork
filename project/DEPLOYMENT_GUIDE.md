@@ -451,14 +451,52 @@ open http://localhost:8080/
 
 ### 5. Run k6 Load Tests
 
+# Prometheus:
 ```bash
-# Make sure port-forward is running in another terminal
-
-# Run the load test
-k6 run k6-tests/constant-load.js
+kubectl port-forward -n monitoring svc/prometheus 9090:9090
+# Then visit http://localhost:9090
+```
+# Grafana:
+```bash
+kubectl port-forward -n monitoring svc/grafana 3000:3000
+# Then visit http://localhost:3000 (admin/admin)
 ```
 
+# Forward port 8080 from your computer to the service
+```bash
+kubectl port-forward svc/nginx-thrift-service 8080:8080
+```
+
+# Run the load test
+```bash
+./scripts/run-test-with-metrics.sh quick-test
+```
+
+# CLEAR MEMORY BETWEEN TESTS
+```bash
+# This will clear all MongoDB databases
+./scripts/clear-nonessential-memory.sh
+
+# Then restart the service
+kubectl rollout restart deployment social-graph-service-deployment -n default
+
+# Then check if service connections are good!
+./scripts/check-service-connections.sh
+
+# And a health check
+./scripts/health-check.sh
+```
 ---
+
+6. **Monitor HPA during test:**
+```bash
+kubectl get hpa -w
+```
+
+7. **Compare results:**
+- Check metrics CSV for latency
+- Check HPA events: `kubectl describe hpa user-service-hpa`
+- Check pod count: `kubectl get pods -l app=user-service`
 
 ## Troubleshooting Commands
 
@@ -470,7 +508,8 @@ kubectl get pods
 kubectl get pods -o wide
 
 # View pod logs
-kubectl logs <pod-name>
+kubectl 
+ <pod-name>
 
 # View pod events (why it's failing)
 kubectl describe pod <pod-name>
@@ -540,3 +579,4 @@ The deployment script handles all of this automatically. Just run it and wait!
 
 **Questions?** Check the troubleshooting section or look at pod logs for specific errors.
 
+Okay, this is looking a lot better. first I ran the quick test which got a perfect score, then I ran the peak-test which, while not perfect, did a lot better. Can you write a new test in the @k6-tests directory, called sweet-test, which is challenging, about as long as the peak test, but not unreasonable for the limitations of my nodes. Something that proves my autoscaling is working correctly, but that is actually acheivable. Please begin by running a few commands to understand the constraints of my system, then write this sweet-test based on what you find.

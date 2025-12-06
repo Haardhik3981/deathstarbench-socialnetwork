@@ -49,9 +49,14 @@ export const options = {
   ],
   
   // Thresholds - test fails if these are not met
+  // Including p50, p95, and p99 ensures these percentiles are calculated and included in summary
   thresholds: {
-    // 95% of requests should complete in under 1000ms
-    'http_req_duration': ['p(95)<1000', 'p(99)<2000'],
+    // Latency thresholds - ensures p50, p95, p99 are calculated
+    'http_req_duration': [
+      'p(50)<500',   // 50% of requests should be under 500ms (target for your experiments)
+      'p(95)<1000',  // 95% of requests should be under 1s
+      'p(99)<2000',  // 99% of requests should be under 2s
+    ],
     
     // Error rate should be less than 5% (allow some errors during load)
     'http_req_failed': ['rate<0.05'],

@@ -99,6 +99,20 @@ project/
 - **Scaling Behavior**: Pod count over time
 - **Error Rates**: Failed requests percentage
 
+## CI/CD Pipeline
+
+This project includes a comprehensive CI/CD pipeline using GitHub Actions:
+
+- **Automatic Validation**: Kubernetes manifests are validated on every push
+- **Code Quality**: Shell scripts are linted for best practices
+- **Security Scanning**: Automated security vulnerability scanning
+- **k6 Test Validation**: Load test scripts are validated for syntax
+- **Optional Deployment**: Can deploy to Kubernetes clusters automatically
+
+**Documentation**: See [CI_CD_DOCUMENTATION.md](CI_CD_DOCUMENTATION.md) for complete details.
+
+**Workflow File**: `.github/workflows/project-ci-cd.yaml`
+
 ## Next Steps
 
 See individual file comments for detailed explanations of each component.

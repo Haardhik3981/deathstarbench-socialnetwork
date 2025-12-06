@@ -71,6 +71,98 @@ Choose one VPA configuration from `user-service-vpa-experiments.yaml`:
 kubectl apply -f kubernetes/autoscaling/user-service-vpa-experiments.yaml
 # Then delete others: kubectl delete vpa user-service-vpa-moderate user-service-vpa-aggressive ...
 ```
+```bash
+# Check if metrics are being collected
+kubectl top pods
+kubectl top nodes
+
+# Check HPA status
+kubectl describe hpa user-service-hpa
+# Look for errors like "unable to get metrics"
+
+kubectl get hpa -n default
+
+
+cd /Users/fabricekurmann/Desktop/CS/School/CSE239/deathstarbench-socialnetwork/project
+kubectl apply -f kubernetes/autoscaling/vpa/
+
+# View all VPA recommendations
+kubectl get vpa -n default
+
+# View detailed recommendations for a specific service
+kubectl describe vpa user-service-vpa -n default
+
+
+# CLEAN THE DB BETWEEN RUNS!!!
+# Step 1: Clean MongoDB (resets database)
+kubectl delete pod -n default -l app=user-mongodb
+
+# Step 2: Wait for MongoDB to restart
+kubectl wait --for=condition=ready pod -n default -l app=user-mongodb --timeout=60s
+
+# Step 3: Restart user-service
+kubectl delete pod -n default -l app=user-service
+
+# Step 4: Wait for user-service to initialize properly
+kubectl wait --for=condition=ready pod -n default -l app=user-service --timeout=120s
+
+
+
+
+# 1. Deactivate HPAs
+kubectl delete hpa --all -n default
+
+# 2. Apply VPAs in "Off" mode first (collect data)
+kubectl apply -f kubernetes/autoscaling/vpa/
+
+# 3. Run a baseline test to let VPA learn
+./scripts/run-k6-tests.sh constant-load
+
+# 4. Check VPA recommendations
+kubectl describe vpa user-service-vpa -n default
+
+# 5. Switch to Recreate mode (this will apply recommendations)
+kubectl patch vpa user-service-vpa -n default --type='merge' \
+  -p='{"spec":{"updatePolicy":{"updateMode":"Recreate"}}}'
+
+# 6. Wait for pods to stabilize (pods will be recreated once)
+# 7. NOW run your peak test - pods already have optimal resources
+./scripts/run-k6-tests.sh peak-test
+
+
+
+
+
+
+
+# In a separate terminal, watch autoscaling in action
+watch -n 2 'kubectl get hpa -n default && echo "" && kubectl get pods -l app=user-service -n default'
+
+# Or watch pod count
+kubectl get pods -l app=user-service -n default -w
+
+# Or better still, interactive watching.
+watch -n 2 'kubectl get hpa -n default'
+
+
+# Prometheus:
+```bash
+kubectl port-forward -n monitoring svc/prometheus 9090:9090
+# Then visit http://localhost:9090
+```
+# Grafana:
+```bash
+kubectl port-forward -n monitoring svc/grafana 3000:3000
+# Then visit http://localhost:3000 (admin/admin)
+```
+
+# Forward port 8080 from your computer to the service
+```bash
+kubectl port-forward svc/nginx-thrift-service 8080:8080
+```
+```
+
+```
 
 Or apply individually by editing the file and keeping only one VPA definition.
 

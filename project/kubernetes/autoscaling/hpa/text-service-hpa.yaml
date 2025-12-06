@@ -1,0 +1,88 @@
+# Horizontal Pod Autoscaler (HPA) for Text Service - Resource-Based (Baseline)
+#
+# WHAT THIS DOES:
+# HPA automatically increases or decreases the number of pod replicas based on
+# CPU and memory utilization. This service handles text processing operations.
+#
+# KEY CONCEPTS:
+# - minReplicas: Minimum number of pods to always keep running
+# - maxReplicas: Maximum number of pods that can be created
+# - targetCPUUtilizationPercentage: Target CPU usage (HPA scales to maintain this)
+# - scaleDown/scaleUp: Policies that control how quickly scaling happens
+#
+# HOW IT WORKS:
+# 1. HPA continuously monitors CPU and memory metrics
+# 2. If average metric exceeds target, it increases replicas
+# 3. If average metric is below target, it decreases replicas
+# 4. Scaling decisions respect min/max replica limits
+#
+# WHY WE NEED IT:
+# Text service handles text processing which is used in posts. This HPA ensures
+# the service can handle load spikes during high activity.
+#
+# NOTE: This follows the same baseline configuration as user-service-hpa.yaml
+# for consistency across services.
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: text-service-hpa
+  namespace: default
+spec:
+  # Which deployment to scale
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: text-service-deployment
+  
+  # Minimum and maximum number of replicas
+  minReplicas: 1   # Reduced from 2 to free up cluster capacity while still allowing autoscaling
+  maxReplicas: 10  # Don't create more than 10 pods (cost control)
+  
+  # Metrics to base scaling decisions on
+  metrics:
+  # Scale based on CPU utilization
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70  # Target 70% CPU usage
+        # If average CPU > 70%, scale up
+        # If average CPU < 70%, scale down
+  
+  # Scale based on memory utilization
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80  # Target 80% memory usage
+  
+  # Scaling behavior - controls how quickly scaling happens
+  behavior:
+    # Behavior when scaling up (increasing replicas)
+    scaleUp:
+      # Stabilization window - wait this long before scaling up again
+      stabilizationWindowSeconds: 0  # Set to 0 for immediate scaling response to traffic spikes
+      policies:
+      - type: Percent
+        value: 100  # Increase by up to 100% of current replicas
+        periodSeconds: 15  # Every 15 seconds
+      - type: Pods
+        value: 2    # Or add 2 pods at a time
+        periodSeconds: 15
+      # Use the policy that results in the most pods
+      selectPolicy: Max
+    
+    # Behavior when scaling down (decreasing replicas)
+    scaleDown:
+      # Wait longer before scaling down (prevents thrashing)
+      stabilizationWindowSeconds: 60  # 1 minute (was 5 minutes) - faster cost optimization
+      policies:
+      - type: Percent
+        value: 50   # Decrease by up to 50% of current replicas
+        periodSeconds: 60  # Every 60 seconds
+      # Use the policy that results in the fewest pods
+      selectPolicy: Min
+

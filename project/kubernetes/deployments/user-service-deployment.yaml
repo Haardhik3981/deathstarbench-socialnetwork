@@ -74,11 +74,22 @@ spec:
         
         resources:
           requests:
-            cpu: 100m  # Reduced from 200m for development/testing
+            cpu: 500m  # Increased from 300m for better register endpoint performance
             memory: 128Mi  # Reduced from 256Mi for development/testing
           limits:
-            cpu: 1000m
+            cpu: 1500m  # Increased from 1000m for headroom during spikes
             memory: 512Mi
+        
+        # Readiness probe: checks if service is ready to receive traffic
+        # Uses process check since netstat/ss are not available in container
+        readinessProbe:
+          exec:
+            command: ["/bin/sh", "-c", "pgrep -f UserService > /dev/null"]
+          initialDelaySeconds: 10  # Give service time to start
+          periodSeconds: 5         # Check every 5 seconds
+          timeoutSeconds: 2        # Timeout after 2 seconds
+          successThreshold: 1      # 1 success = ready
+          failureThreshold: 3      # 3 failures = not ready
         
         # Note: DeathStarBench services use Thrift, not HTTP
         # Health checks may need to be adapted or disabled
