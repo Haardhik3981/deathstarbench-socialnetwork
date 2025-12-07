@@ -1,0 +1,67 @@
+# =============================================================================
+# Horizontal Pod Autoscaler for nginx-thrift
+# =============================================================================
+# Nautilus PRP Cluster Compatible - Uses ONLY metrics-server CPU/Memory
+# Namespace: cse239fall2025
+# =============================================================================
+#
+# Apply with: kubectl apply -f nginx-hpa.yaml -n cse239fall2025
+# Monitor with: kubectl get hpa nginx-thrift -n cse239fall2025 -w
+#
+# =============================================================================
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: nginx-thrift
+  namespace: cse239fall2025
+  labels:
+    app: nginx-thrift
+    component: api-gateway
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nginx-thrift
+  
+  # Replica bounds
+  minReplicas: 1
+  maxReplicas: 3
+  
+  # Metrics from metrics-server ONLY (Nautilus compatible)
+  metrics:
+    # CPU metric - targets 60% average utilization
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 30
+    
+    # Memory metric - targets 70% average utilization
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 70
+  
+  # Scaling behavior to prevent thrashing
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 120
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+      selectPolicy: Min
