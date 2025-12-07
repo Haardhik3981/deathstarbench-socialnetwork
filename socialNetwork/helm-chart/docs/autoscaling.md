@@ -10,7 +10,7 @@ Horizontal Pod Autoscaler (HPA) automatically scales the number of pods in a dep
 ┌─────────────────────────────────────────────────────────────┐
 │  Load Increases                                             │
 │                    ↓                                         │
-│  CPU/Memory Utilization > 70%                               │
+│  CPU/Memory Utilization > Target                            │
 │                    ↓                                         │
 │  HPA Controller Detects                                      │
 │                    ↓                                         │
@@ -18,7 +18,7 @@ Horizontal Pod Autoscaler (HPA) automatically scales the number of pods in a dep
 │                    ↓                                         │
 │  Load Distributed Across More Pods                           │
 │                    ↓                                         │
-│  Utilization Drops < 70%                                     │
+│  Utilization Drops Below Target                              │
 │                    ↓                                         │
 │  HPA Scales Down: 3 pods → 1 pod (after stabilization)       │
 └─────────────────────────────────────────────────────────────┘
@@ -29,70 +29,55 @@ Horizontal Pod Autoscaler (HPA) automatically scales the number of pods in a dep
 ### Apply HPA
 
 ```bash
-kubectl apply -f scripts/hpa-config.yaml -n cse239fall2025
+kubectl apply -f scripts/nginx-hpa.yaml -n cse239fall2025
 ```
 
 ### Check HPA Status
 
 ```bash
-# List all HPAs
 kubectl get hpa -n cse239fall2025
-
-# Detailed status
-kubectl describe hpa compose-post-service-hpa -n cse239fall2025
+kubectl describe hpa nginx-thrift -n cse239fall2025
 ```
 
 ### Example Output
 
 ```
-NAME                        REFERENCE                      TARGETS         MINPODS   MAXPODS   REPLICAS   AGE
-compose-post-service-hpa    Deployment/compose-post        70%/70% (avg)   1         5         3         5m
-home-timeline-service-hpa   Deployment/home-timeline       45%/70% (avg)   1         5         1         5m
+NAME           REFERENCE                 TARGETS           MINPODS   MAXPODS   REPLICAS   AGE
+nginx-thrift   Deployment/nginx-thrift   25%/30%, 45%/70%  1         3         1          5m
 ```
 
-## HPA Configuration Details
-
-### compose-post-service-hpa
+## nginx-thrift HPA Configuration
 
 ```yaml
 minReplicas: 1
-maxReplicas: 5
-targetCPUUtilization: 70%
-targetMemoryUtilization: 80%
+maxReplicas: 3
+targetCPUUtilization: 30%
+targetMemoryUtilization: 70%
 ```
 
 **Scaling Behavior:**
-- **Scale Up**: Add 2 pods every 60 seconds (max 5 pods)
+- **Scale Up**: Add up to 2 pods every 60 seconds
 - **Scale Down**: Remove 1 pod every 60 seconds (after 2 min stabilization)
-
-### Other Services
-
-All services follow similar pattern:
-- **minReplicas**: 1 (always have at least 1 pod)
-- **maxReplicas**: 3-5 (depending on service)
-- **targetCPUUtilization**: 70%
 
 ## Testing HPA
 
 ### Step 1: Apply HPA
 
 ```bash
-kubectl apply -f scripts/hpa-config.yaml -n cse239fall2025
+kubectl apply -f scripts/nginx-hpa.yaml -n cse239fall2025
 ```
 
 ### Step 2: Watch HPA
 
 ```bash
-# Terminal 1: Watch HPA
 kubectl get hpa -n cse239fall2025 -w
 ```
 
 ### Step 3: Generate Load
 
 ```bash
-# Terminal 2: Run load test
-cd scripts
-k6 run k6-load-test.js
+kubectl apply -f scripts/k6-hpa-trigger-job.yaml -n cse239fall2025
+kubectl logs -f -n cse239fall2025 -l app=k6-hpa-trigger
 ```
 
 ### Step 4: Observe Scaling
@@ -108,7 +93,7 @@ You should see:
 ### Watch HPA Events
 
 ```bash
-kubectl describe hpa compose-post-service-hpa -n cse239fall2025
+kubectl describe hpa nginx-thrift -n cse239fall2025
 ```
 
 **Example Events:**
@@ -123,8 +108,7 @@ Events:
 ### Watch Pod Scaling
 
 ```bash
-# Watch pods being created/destroyed
-kubectl get pods -n cse239fall2025 -w | grep compose-post-service
+kubectl get pods -n cse239fall2025 -w | grep nginx-thrift
 ```
 
 ### Grafana Dashboard
@@ -139,10 +123,7 @@ Monitor in Grafana:
 HPA uses metrics from **metrics-server**:
 
 ```bash
-# Check if metrics-server is available
 kubectl top pods -n cse239fall2025
-
-# If it works, HPA can get CPU/memory metrics
 ```
 
 ## Troubleshooting
@@ -156,7 +137,7 @@ kubectl top pods -n cse239fall2025
 
 **Check 2: HPA Status**
 ```bash
-kubectl describe hpa compose-post-service-hpa -n cse239fall2025
+kubectl describe hpa nginx-thrift -n cse239fall2025
 ```
 
 Look for:
@@ -165,7 +146,7 @@ Look for:
 
 **Check 3: Pod Resources**
 ```bash
-kubectl get deployment compose-post-service -n cse239fall2025 -o yaml | grep -A 5 resources
+kubectl get deployment nginx-thrift -n cse239fall2025 -o yaml | grep -A 5 resources
 ```
 
 HPA needs pods to have **resource requests** defined.
@@ -177,9 +158,9 @@ HPA needs pods to have **resource requests** defined.
 ```yaml
 behavior:
   scaleUp:
-    stabilizationWindowSeconds: 60  # Wait 60s before scaling up
+    stabilizationWindowSeconds: 60
   scaleDown:
-    stabilizationWindowSeconds: 300  # Wait 5min before scaling down
+    stabilizationWindowSeconds: 300
 ```
 
 ### HPA Not Scaling Down
@@ -187,15 +168,6 @@ behavior:
 **Check**: Scale down stabilization window might be too long.
 
 **Solution**: Reduce `stabilizationWindowSeconds` in scaleDown policy.
-
-## Best Practices
-
-1. ✅ **Set resource requests** on all pods (required for HPA)
-2. ✅ **Use appropriate thresholds** (70% CPU is a good default)
-3. ✅ **Set minReplicas** to ensure availability
-4. ✅ **Set maxReplicas** to prevent resource exhaustion
-5. ✅ **Monitor scaling events** in Grafana
-6. ✅ **Test scaling** with load tests
 
 ## Integration with Load Testing
 
@@ -206,14 +178,14 @@ behavior:
 kubectl get hpa -n cse239fall2025 -w
 
 # Terminal 2: Watch Pods
-kubectl get pods -n cse239fall2025 -w
+kubectl get pods -n cse239fall2025 -w | grep nginx-thrift
 
-# Terminal 3: Run Load Test
-cd scripts
-k6 run k6-load-test.js
+# Terminal 3: Run HPA Trigger Test
+kubectl apply -f scripts/k6-hpa-trigger-job.yaml -n cse239fall2025
+kubectl logs -f -n cse239fall2025 -l app=k6-hpa-trigger
 
 # Terminal 4: Monitor Grafana
-# Open http://localhost:3000
+# Open https://grafana-haardhik.nrp-nautilus.io/d/social-network-nautilus/social-network-nautilus-dashboard
 ```
 
 **Expected Behavior:**
@@ -223,10 +195,8 @@ k6 run k6-load-test.js
 4. Load test ends → CPU decreases
 5. HPA detects → Scales down pods (after stabilization)
 
-## Summary
+## Cleanup
 
-✅ **HPA Applied**: Automatically scales pods based on CPU/memory  
-✅ **Monitoring**: Watch scaling in Grafana and kubectl  
-✅ **Testing**: Use k6 load tests to trigger scaling  
-✅ **Configuration**: Customizable thresholds and policies
-
+```bash
+kubectl delete -f scripts/nginx-hpa.yaml -n cse239fall2025
+```

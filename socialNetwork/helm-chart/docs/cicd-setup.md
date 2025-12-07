@@ -149,7 +149,7 @@ Edit `.github/workflows/deploy-social-network.yml`:
 
 ```yaml
 env:
-  NAMESPACE: your-namespace  # Change this
+  NAMESPACE: cse239fall2025
 ```
 
 ### Add Custom Helm Values

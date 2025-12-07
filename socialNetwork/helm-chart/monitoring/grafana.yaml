@@ -25,7 +25,7 @@ spec:
         - name: GF_SECURITY_ADMIN_USER
           value: "admin"
         - name: GF_SECURITY_ADMIN_PASSWORD
-          value: "admin"  # Change this after first login!
+          value: "admin"
         resources:
           requests:
             cpu: "200m"
@@ -71,7 +71,7 @@ metadata:
 spec:
   ingressClassName: haproxy
   rules:
-  - host: grafana-haardhik.nrp-nautilus.io  # 🔧 CHANGE THIS to your unique hostname!
+  - host: grafana-haardhik.nrp-nautilus.io
     http:
       paths:
       - path: /
@@ -83,5 +83,5 @@ spec:
               number: 3000
   tls:
   - hosts:
-    - grafana-haardhik.nrp-nautilus.io  # 🔧 CHANGE THIS to match the host above!
+    - grafana-haardhik.nrp-nautilus.io
 

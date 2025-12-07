@@ -8,7 +8,7 @@ metadata:
 spec:
   ingressClassName: haproxy
   rules:
-  - host: socialnetwork-haardhik.nrp-nautilus.io  # Change to your unique hostname
+  - host: socialnetwork-haardhik.nrp-nautilus.io
     http:
       paths:
       - path: /
@@ -20,6 +20,6 @@ spec:
               number: 8080
   tls:
   - hosts:
-    - socialnetwork-haardhik.nrp-nautilus.io  # Must match the host above
+    - socialnetwork-haardhik.nrp-nautilus.io
 
 

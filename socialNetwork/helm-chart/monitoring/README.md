@@ -37,7 +37,8 @@ See **[COMMANDS-ONLY.md](./COMMANDS-ONLY.md)** for step-by-step deployment comma
 | `grafana-datasources.yaml` | Prometheus datasource for Grafana |
 | `grafana-dashboard.json` | Pre-built dashboard to import |
 | `pushgateway-deployment.yaml` | Pushgateway for CPU/Memory metrics |
-| `COMMANDS-ONLY.md` | Step-by-step deployment guide |
+| `nginx-ingress.yaml` | Ingress for nginx-thrift external access |
+| `COMMANDS-ONLY.md` | Commands-only deployment reference |
 
 ---
 
@@ -81,18 +82,22 @@ kubectl apply -f prometheus.yaml -n cse239fall2025
 kubectl apply -f pushgateway-deployment.yaml -n cse239fall2025
 kubectl apply -f grafana-datasources.yaml -n cse239fall2025
 kubectl apply -f grafana.yaml -n cse239fall2025
+kubectl apply -f nginx-ingress.yaml -n cse239fall2025
 
-# Port-forward
-kubectl port-forward svc/grafana 3000:3000 -n cse239fall2025
+# Port-forward (Prometheus and Pushgateway)
 kubectl port-forward svc/prometheus 9090:9090 -n cse239fall2025
 kubectl port-forward svc/pushgateway 9091:9091 -n cse239fall2025
 
 # Start metrics collector (in scripts folder)
 ./push-metrics-loop.sh 10
-
-# Import dashboard
-# Go to Grafana → Dashboards → Import → Upload grafana-dashboard.json
 ```
+
+## Access (Global)
+
+- **Application:** https://socialnetwork-haardhik.nrp-nautilus.io
+- **Grafana:** https://grafana-haardhik.nrp-nautilus.io
+- **Dashboard:** https://grafana-haardhik.nrp-nautilus.io/d/social-network-nautilus/social-network-nautilus-dashboard
+- **Login:** `admin` / `admin`
 
 ---
 
