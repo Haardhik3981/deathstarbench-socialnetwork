@@ -3,12 +3,12 @@
 # WHAT THIS DOES:
 # This deployment manages the User microservice pods from DeathStarBench.
 # The User service handles user account operations (create, read, update profiles).
+# It connects to user-mongodb for persistent storage and user-memcached for caching.
 #
 # KEY POINTS:
 # - Uses the DeathStarBench unified image with entrypoint: UserService
-# - Connects to user-mongodb and user-memcached
 # - All services run on port 9090 (Thrift protocol)
-# - Requires config volume mount for service-config.json
+# - Requires config volume mount for service-config.json and jaeger-config.yml
 
 apiVersion: apps/v1
 kind: Deployment
@@ -19,17 +19,20 @@ metadata:
     app: user-service
     component: backend
     microservice: deathstarbench
+
 spec:
-  replicas: 1  # Reduced from 2 for development/testing to save CPU resources
+  replicas: 1
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 0  # With 1 replica, we can't allow unavailability
-      maxSurge: 1  # Allow 1 extra pod during updates
+      maxUnavailable: 1
+      maxSurge: 1
+
   selector:
     matchLabels:
       app: user-service
       component: backend
+
   template:
     metadata:
       labels:
@@ -39,29 +42,23 @@ spec:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9090"
+
     spec:
       containers:
       - name: user-service
-        # DeathStarBench uses a single image with different entrypoints
         image: us-central1-docker.pkg.dev/cse239-479821/social-network-images/social-network-microservices:latest
         imagePullPolicy: IfNotPresent
-        
-        # Entrypoint determines which service runs from the unified image
-        # Binaries are installed to /usr/local/bin/ by make install
         command: ["/usr/local/bin/UserService"]
-        
+
         ports:
         - containerPort: 9090
           name: thrift
           protocol: TCP
-        
-        # Environment variables
+
         env:
         - name: SERVICE_NAME
           value: "user-service"
-        
-        # Mount configuration files
-        # Services look for files at: config/jaeger-config.yml and config/service-config.json
+
         volumeMounts:
         - name: config
           mountPath: /social-network-microservices/config/jaeger-config.yml
@@ -71,38 +68,27 @@ spec:
           mountPath: /social-network-microservices/config/service-config.json
           subPath: service-config.json
           readOnly: true
-        
+
         resources:
           requests:
-            cpu: 500m  # Increased from 300m for better register endpoint performance
-            memory: 128Mi  # Reduced from 256Mi for development/testing
+            cpu: 100m
+            memory: 128Mi
           limits:
-            cpu: 1500m  # Increased from 1000m for headroom during spikes
+            cpu: 1500m
             memory: 512Mi
-        
-        # Readiness probe: checks if service is ready to receive traffic
-        # Uses process check since netstat/ss are not available in container
+
         readinessProbe:
           exec:
             command: ["/bin/sh", "-c", "pgrep -f UserService > /dev/null"]
-          initialDelaySeconds: 10  # Give service time to start
-          periodSeconds: 5         # Check every 5 seconds
-          timeoutSeconds: 2        # Timeout after 2 seconds
-          successThreshold: 1      # 1 success = ready
-          failureThreshold: 3      # 3 failures = not ready
-        
-        # Note: DeathStarBench services use Thrift, not HTTP
-        # Health checks may need to be adapted or disabled
-        # livenessProbe:
-        #   exec:
-        #     command: ["/bin/sh", "-c", "netstat -an | grep 9090"]
-        #   initialDelaySeconds: 30
-        #   periodSeconds: 30
-        
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 2
+          successThreshold: 1
+          failureThreshold: 3
+
       volumes:
       - name: config
         configMap:
           name: deathstarbench-config
-      
-      restartPolicy: Always
 
+      restartPolicy: Always

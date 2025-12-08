@@ -1,359 +1,156 @@
-# Autoscaling Configuration Guide
+# Autoscaling Configuration
 
-## Overview
+HPA (Horizontal Pod Autoscaler) and VPA (Vertical Pod Autoscaler) configurations for performance/cost optimization.
 
-This directory contains Horizontal Pod Autoscaler (HPA) and Vertical Pod Autoscaler (VPA) configurations for performance/cost trade-off analysis. The goal is to find the optimal configuration that maintains **<500ms average end-to-end response time** while minimizing GCP cost.
+## Directory Structure
 
-## Files
+```
+autoscaling/
+├── README.md                    # This file
+├── hpa/                         # Horizontal Pod Autoscaler configs
+│   ├── user-service-hpa.yaml
+│   ├── compose-post-service-hpa.yaml
+│   ├── home-timeline-service-hpa.yaml
+│   └── ... (12 HPA configs total)
+├── vpa/                         # Vertical Pod Autoscaler configs
+│   ├── user-service-vpa.yaml
+│   ├── compose-post-service-vpa.yaml
+│   ├── home-timeline-service-vpa.yaml
+│   └── ... (12 VPA configs total)
+├── user-service-vpa-experiments.yaml  # Multiple VPA configurations for experiments
+├── prometheus-adapter-config.yaml    # Prometheus Adapter for custom metrics
+└── HPA_DETAILED_EXPLANATION.md       # Detailed HPA documentation
+```
 
-### HPA Configurations
+## HPA Configurations
 
-1. **`user-service-hpa-latency.yaml`** - Latency-based autoscaling
-   - Scales based on response time metrics
-   - Primary metric: `http_request_duration_seconds` (target: <400ms)
-   - Secondary metric: CPU utilization (safety check)
-   - **Requires Prometheus Adapter** (see setup below)
+### Location: `hpa/`
 
-2. **`user-service-hpa-resource.yaml`** - Resource-based autoscaling (baseline)
-   - Scales based on CPU and memory utilization
-   - Traditional approach for comparison
-   - Works out of the box (no Prometheus Adapter needed)
+| File | Service | Metrics | Target |
+|------|---------|---------|--------|
+| `user-service-hpa.yaml` | User Service | CPU 70%, Memory 80% | 1-10 replicas |
+| `compose-post-service-hpa.yaml` | Compose Post | CPU 70%, Memory 80% | 1-10 replicas |
+| `home-timeline-service-hpa.yaml` | Home Timeline | CPU 70%, Memory 80% | 1-10 replicas |
+| `nginx-thrift-hpa.yaml` | Nginx Gateway | CPU 70%, Memory 80% | 1-10 replicas |
+| ... | (8 more services) | CPU 70%, Memory 80% | 1-10 replicas |
 
-### VPA Configurations
+**All HPAs:**
+- Scale based on CPU (70% target) and Memory (80% target)
+- Min replicas: 1
+- Max replicas: 10 (social-graph: 8)
+- Fast scale-up (0s stabilization)
+- Conservative scale-down (60s stabilization)
 
-**`user-service-vpa-experiments.yaml`** - Multiple VPA configurations:
+## VPA Configurations
+
+### Location: `vpa/`
+
+| File | Service | Update Mode | CPU Range | Memory Range |
+|------|---------|-------------|-----------|--------------|
+| `user-service-vpa.yaml` | User Service | Off | 100m-2000m | 128Mi-1024Mi |
+| `compose-post-service-vpa.yaml` | Compose Post | Off | 100m-1000m | 128Mi-512Mi |
+| `home-timeline-service-vpa.yaml` | Home Timeline | Off | 100m-1000m | 128Mi-512Mi |
+| ... | (9 more services) | Off | Varies | Varies |
+
+**All VPAs:**
+- Update mode: **Off** (recommendations only, no automatic updates)
+- Provides resource recommendations based on historical usage
+- View recommendations: `kubectl describe vpa <service-name>-vpa`
+
+## Experiment Configurations
+
+### `user-service-vpa-experiments.yaml`
+
+Multiple VPA configurations for testing:
 - **Conservative**: Lower cost per pod, more pods needed
 - **Moderate**: Balanced cost and performance
 - **Aggressive**: Higher cost per pod, fewer pods needed
 - **CPU-Optimized**: High CPU, moderate memory
 - **Memory-Optimized**: Moderate CPU, high memory
 
-## Setup Instructions
+## Quick Start
 
-### Step 1: Install Prometheus Adapter (for latency-based HPA)
-
+### Apply All HPAs
 ```bash
-cd project/
-./scripts/setup-prometheus-adapter.sh
+kubectl apply -f kubernetes/autoscaling/hpa/
 ```
 
-This installs Prometheus Adapter which exposes Prometheus metrics to Kubernetes HPA.
-
-**Verify installation:**
+### Apply All VPAs
 ```bash
-# Check if Custom Metrics API is available
-kubectl get --raw '/apis/custom.metrics.k8s.io/v1beta1'
-
-# Check if latency metrics are exposed
-kubectl get --raw '/apis/custom.metrics.k8s.io/v1beta1/namespaces/default/pods/*/http_request_duration_seconds'
+kubectl apply -f kubernetes/autoscaling/vpa/
 ```
 
-### Step 2: Deploy HPA Configuration
-
-**For latency-based scaling:**
+### Check Status
 ```bash
-kubectl apply -f kubernetes/autoscaling/user-service-hpa-latency.yaml
-```
-
-**For resource-based scaling (baseline):**
-```bash
-kubectl apply -f kubernetes/autoscaling/user-service-hpa-resource.yaml
-```
-
-**Note:** Only apply ONE HPA per deployment at a time.
-
-### Step 3: Deploy VPA Configuration
-
-Choose one VPA configuration from `user-service-vpa-experiments.yaml`:
-
-```bash
-# Apply conservative VPA
-kubectl apply -f kubernetes/autoscaling/user-service-vpa-experiments.yaml
-# Then delete others: kubectl delete vpa user-service-vpa-moderate user-service-vpa-aggressive ...
-```
-```bash
-# Check if metrics are being collected
-kubectl top pods
-kubectl top nodes
-
-# Check HPA status
-kubectl describe hpa user-service-hpa
-# Look for errors like "unable to get metrics"
-
+# HPA status
 kubectl get hpa -n default
 
-
-cd /Users/fabricekurmann/Desktop/CS/School/CSE239/deathstarbench-socialnetwork/project
-kubectl apply -f kubernetes/autoscaling/vpa/
-
-# View all VPA recommendations
+# VPA recommendations
 kubectl get vpa -n default
 
-# View detailed recommendations for a specific service
+# Detailed VPA recommendations
 kubectl describe vpa user-service-vpa -n default
+```
 
+## Monitoring
 
-# CLEAN THE DB BETWEEN RUNS!!!
-# Step 1: Clean MongoDB (resets database)
-kubectl delete pod -n default -l app=user-mongodb
-
-# Step 2: Wait for MongoDB to restart
-kubectl wait --for=condition=ready pod -n default -l app=user-mongodb --timeout=60s
-
-# Step 3: Restart user-service
-kubectl delete pod -n default -l app=user-service
-
-# Step 4: Wait for user-service to initialize properly
-kubectl wait --for=condition=ready pod -n default -l app=user-service --timeout=120s
-
-
-
-
-# 1. Deactivate HPAs
-kubectl delete hpa --all -n default
-
-# 2. Apply VPAs in "Off" mode first (collect data)
-kubectl apply -f kubernetes/autoscaling/vpa/
-
-# 3. Run a baseline test to let VPA learn
-./scripts/run-k6-tests.sh constant-load
-
-# 4. Check VPA recommendations
-kubectl describe vpa user-service-vpa -n default
-
-# 5. Switch to Recreate mode (this will apply recommendations)
-kubectl patch vpa user-service-vpa -n default --type='merge' \
-  -p='{"spec":{"updatePolicy":{"updateMode":"Recreate"}}}'
-
-# 6. Wait for pods to stabilize (pods will be recreated once)
-# 7. NOW run your peak test - pods already have optimal resources
-./scripts/run-k6-tests.sh peak-test
-
-
-
-
-
-
-
-# In a separate terminal, watch autoscaling in action
-watch -n 2 'kubectl get hpa -n default && echo "" && kubectl get pods -l app=user-service -n default'
-
-# Or watch pod count
-kubectl get pods -l app=user-service -n default -w
-
-# Or better still, interactive watching.
-watch -n 2 'kubectl get hpa -n default'
-
-
-# Prometheus:
+### Watch HPA Scaling
 ```bash
-kubectl port-forward -n monitoring svc/prometheus 9090:9090
-# Then visit http://localhost:9090
-```
-# Grafana:
-```bash
-kubectl port-forward -n monitoring svc/grafana 3000:3000
-# Then visit http://localhost:3000 (admin/admin)
-```
-
-# Forward port 8080 from your computer to the service
-```bash
-kubectl port-forward svc/nginx-thrift-service 8080:8080
-```
-```
-
-```
-
-Or apply individually by editing the file and keeping only one VPA definition.
-
-### Step 4: Monitor Autoscaling
-
-```bash
-# Watch HPA status
 kubectl get hpa -w
-
-# Watch pod count
-kubectl get pods -l app=user-service -w
-
-# Check HPA details
-kubectl describe hpa user-service-hpa-latency
-
-# Check VPA recommendations
-kubectl describe vpa user-service-vpa-moderate
 ```
 
-## Running Experiments
-
-### Automated Experiment Runner
-
-Use the experiment script to run controlled tests:
-
+### Watch VPA Recommendations
 ```bash
-cd project/
-./scripts/run-autoscaling-experiments.sh all
+watch -n 5 'kubectl get vpa -n default'
 ```
 
-This will:
-1. Apply different HPA/VPA configurations
-2. Run latency tests
-3. Collect metrics (pod count, resource usage, latency)
-4. Save results for analysis
+### View Pod Resources
+```bash
+kubectl get pods -o custom-columns=NAME:.metadata.name,CPU-REQ:.spec.containers[0].resources.requests.cpu,MEM-REQ:.spec.containers[0].resources.requests.memory
+```
 
-### Manual Experiment Process
+## Configuration Details
 
-1. **Apply configuration:**
-   ```bash
-   kubectl apply -f kubernetes/autoscaling/user-service-hpa-latency.yaml
-   ```
+### HPA Behavior
+- **Scale-up**: Immediate (0s stabilization), up to 100% increase or 2 pods
+- **Scale-down**: 60s stabilization, up to 50% decrease
+- **Metrics**: CPU and memory utilization percentages
 
-2. **Wait for stabilization** (2-5 minutes)
+### VPA Behavior
+- **Update Mode**: Off (recommendations only)
+- **Learning Period**: 10-15 minutes of moderate load
+- **Recommendations**: Based on historical usage patterns
+- **To Apply**: Manually update deployment resource requests/limits
 
-3. **Run load test:**
-   ```bash
-   ./scripts/run-k6-tests.sh constant-load
-   ```
+## Best Practices
 
-4. **Collect metrics:**
-   ```bash
-   # Pod count
-   kubectl get deployment user-service-deployment -o jsonpath='{.status.replicas}'
-   
-   # Resource usage
-   kubectl top pods -l app=user-service
-   
-   # HPA status
-   kubectl get hpa user-service-hpa-latency -o yaml
-   
-   # VPA recommendations
-   kubectl get vpa user-service-vpa-moderate -o yaml
-   ```
-
-5. **Calculate cost:**
-   - Pod count × Resource per pod × Time × GCP pricing
-   - Use GCP Pricing Calculator: https://cloud.google.com/products/calculator
-
-6. **Record results:**
-   - Latency (p50, p95, p99)
-   - Pod count
-   - CPU/memory usage
-   - Estimated cost per request
-
-## Experiment Matrix
-
-| Experiment | HPA Type | VPA Config | Expected Outcome |
-|------------|----------|------------|-------------------|
-| 1 | Latency-based | None | Fast response to latency spikes |
-| 2 | Resource-based | None | Baseline for comparison |
-| 3 | Latency-based | Conservative | Lower cost, more pods |
-| 4 | Latency-based | Moderate | Balanced |
-| 5 | Latency-based | Aggressive | Higher cost, fewer pods |
-| 6 | Latency-based | CPU-optimized | Better for CPU-bound workloads |
-| 7 | Latency-based | Memory-optimized | Better for memory-bound workloads |
-
-## Metrics to Track
-
-For each experiment, record:
-
-1. **Latency Metrics:**
-   - Average response time (should be <500ms)
-   - p95 response time
-   - p99 response time
-
-2. **Cost Metrics:**
-   - Average pod count
-   - CPU usage per pod
-   - Memory usage per pod
-   - Estimated cost per request
-
-3. **Performance Metrics:**
-   - Requests per second (throughput)
-   - Error rate
-   - Scaling events (scale up/down frequency)
-
-## Analysis
-
-After running experiments:
-
-1. **Plot latency vs cost** for each configuration
-2. **Identify the configuration** that meets <500ms target with lowest cost
-3. **Consider trade-offs:**
-   - Latency-based HPA responds faster to traffic spikes
-   - Resource-based HPA is more predictable
-   - Higher VPA limits = fewer pods but higher cost per pod
-   - Lower VPA limits = more pods but lower cost per pod
+1. **Start with HPA**: Apply HPAs first to enable horizontal scaling
+2. **Monitor VPA**: Let VPA collect data for 15+ minutes before checking recommendations
+3. **CPU-Based Scaling**: Use reduced CPU requests (100m) to force CPU-based scaling
+4. **Test Gradually**: Start with low load, gradually increase
+5. **Compare Configurations**: Test different VPA settings to find optimal cost/performance
 
 ## Troubleshooting
 
 ### HPA Not Scaling
-
-**Check metrics availability:**
 ```bash
-# For resource-based HPA
-kubectl top nodes
+# Check metrics availability
 kubectl top pods
 
-# For latency-based HPA
-kubectl get --raw '/apis/custom.metrics.k8s.io/v1beta1'
+# Check HPA status
+kubectl describe hpa user-service-hpa
 ```
 
-**Check HPA status:**
+### VPA No Recommendations
 ```bash
-kubectl describe hpa user-service-hpa-latency
-# Look for "unable to get metrics" errors
+# Check VPA status
+kubectl describe vpa user-service-vpa
+
+# Ensure VPA has collected data (wait 15+ minutes)
 ```
 
-**Common issues:**
-- Metrics server not installed (for resource-based HPA)
-- Prometheus Adapter not installed (for latency-based HPA)
-- Metrics not exposed by services
-- Prometheus not scraping metrics
+## See Also
 
-### VPA Not Working
-
-**Check VPA status:**
-```bash
-kubectl describe vpa user-service-vpa-moderate
-```
-
-**Common issues:**
-- VPA not installed in cluster
-- VPA admission controller not enabled
-- updateMode set to "Off" (only shows recommendations)
-
-### Latency Metrics Not Available
-
-1. **Verify Prometheus is scraping:**
-   ```bash
-   kubectl port-forward -n monitoring svc/prometheus 9090:9090
-   # Visit http://localhost:9090/targets
-   ```
-
-2. **Check if services expose metrics:**
-   ```bash
-   kubectl port-forward svc/user-service 9090:9090
-   curl http://localhost:9090/metrics
-   ```
-
-3. **Verify Prometheus Adapter configuration:**
-   ```bash
-   kubectl get configmap adapter-config -n monitoring -o yaml
-   ```
-
-## Best Practices
-
-1. **Start with VPA in "Off" mode** to see recommendations first
-2. **Test one configuration at a time** for clear results
-3. **Run tests for at least 10-15 minutes** to see scaling behavior
-4. **Monitor both latency and cost** - don't optimize for one alone
-5. **Use production-like load** for realistic results
-6. **Document all configurations** and results for comparison
-
-## Next Steps
-
-1. Set up Prometheus Adapter
-2. Deploy initial HPA configuration
-3. Run baseline experiment (resource-based HPA)
-4. Run latency-based HPA experiment
-5. Compare results and iterate
-6. Find optimal configuration that meets <500ms target with minimal cost
-
+- `HPA_DETAILED_EXPLANATION.md` - Detailed HPA documentation
+- `kubernetes/monitoring/METRICS_TRACKING_GUIDE.md` - Prometheus queries
+- `../deployments/` - Deployment configurations

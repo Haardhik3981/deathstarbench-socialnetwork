@@ -165,8 +165,6 @@ else
         fi
         cd "${PROJECT_ROOT}"
     fi
-else
-    print_warn "Lua scripts directory not found, nginx-lua-scripts ConfigMap will be missing"
 fi
 
 # Deploy databases first

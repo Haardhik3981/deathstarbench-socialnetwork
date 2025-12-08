@@ -23,6 +23,7 @@ This guide will walk you through deploying the DeathStarBench Social Network app
 Before you start, make sure you have:
 
 ### 1. Google Cloud Account & Project
+
 - A GCP account with billing enabled
 - A GCP project created
 - GKE API enabled in your project
@@ -52,6 +53,7 @@ brew install google-cloud-sdk-gke-gcloud-auth-plugin
 ```
 
 ### 3. DeathStarBench Source Code
+
 - The DeathStarBench source code should be in: `../socialNetwork/` (relative to this project)
 
 ---
@@ -63,6 +65,7 @@ brew install google-cloud-sdk-gke-gcloud-auth-plugin
 DeathStarBench Social Network is a **microservices application** with these components:
 
 #### 1. **11 Microservices** (the actual application logic)
+
 - `user-service` - User account management
 - `social-graph-service` - Friend connections
 - `compose-post-service` - Creating posts
@@ -76,19 +79,23 @@ DeathStarBench Social Network is a **microservices application** with these comp
 - `user-mention-service` - @mentions in posts
 
 #### 2. **6 MongoDB Databases** (data storage)
+
 - One database per service that needs storage
 - Stores user data, posts, relationships, etc.
 
 #### 3. **7 Cache Services** (fast data access)
+
 - **3 Redis** instances - For timeline caching
 - **4 Memcached** instances - For other caching
 
 #### 4. **nginx-thrift Gateway** (API gateway)
+
 - Receives HTTP requests from users
 - Routes requests to the appropriate microservice
 - Acts as the entry point to your application
 
 #### 5. **Jaeger** (monitoring)
+
 - Distributed tracing system
 - Helps debug issues across services
 
@@ -263,28 +270,33 @@ done
 ### Per-Pod Resources
 
 #### Microservices (11 pods)
+
 - **CPU request**: 100m (0.1 cores) each = **1100m total**
 - **CPU limit**: 1000m (1 core) each
 - **Memory request**: 128Mi each = **~1.4GB total**
 - **Memory limit**: 512Mi each
 
 #### MongoDB (6 pods)
+
 - **CPU request**: 100m each = **600m total**
 - **CPU limit**: 1000m each
 - **Memory request**: 512Mi each = **~3GB total**
 - **Memory limit**: 2Gi each
 
 #### Redis/Memcached (7 pods)
+
 - **CPU request**: 50-100m each = **~500m total**
 - **Memory request**: 64-128Mi each = **~500MB total**
 
 #### nginx-thrift (1 pod)
+
 - **CPU request**: 50m
 - **CPU limit**: 1000m
 - **Memory request**: 128Mi
 - **Memory limit**: 512Mi
 
 #### Jaeger (1 pod)
+
 - **CPU request**: 100m
 - **Memory request**: 256Mi
 
@@ -307,6 +319,7 @@ done
 - Limits prevent pods from using too much
 
 ---
+
 ## Verification Script
 
 You can verify with this quick test:
@@ -329,6 +342,8 @@ echo "ConfigMaps: $(kubectl get configmap --no-headers 2>/dev/null | grep -v kub
 echo "PVCs: $(kubectl get pvc --no-headers 2>/dev/null | wc -l | tr -d ' ')"
 echo "Pods: $(kubectl get pods --no-headers 2>/dev/null | wc -l | tr -d ' ')"
 ```
+
+---
 
 ## Common Issues & Fixes
 
@@ -451,52 +466,39 @@ open http://localhost:8080/
 
 ### 5. Run k6 Load Tests
 
-# Prometheus:
+**Set up port forwarding:**
 ```bash
+# Forward nginx-thrift service
+kubectl port-forward svc/nginx-thrift-service 8080:8080
+
+# In separate terminals, forward monitoring services (optional):
+# Prometheus
 kubectl port-forward -n monitoring svc/prometheus 9090:9090
 # Then visit http://localhost:9090
-```
-# Grafana:
-```bash
+
+# Grafana
 kubectl port-forward -n monitoring svc/grafana 3000:3000
 # Then visit http://localhost:3000 (admin/admin)
 ```
 
-# Forward port 8080 from your computer to the service
-```bash
-kubectl port-forward svc/nginx-thrift-service 8080:8080
-```
-
-# Run the load test
+**Run the load test:**
 ```bash
 ./scripts/run-test-with-metrics.sh quick-test
 ```
 
-# CLEAR MEMORY BETWEEN TESTS
-```bash
-# This will clear all MongoDB databases
-./scripts/clear-nonessential-memory.sh
+### 6. Monitor HPA During Test
 
-# Then restart the service
-kubectl rollout restart deployment social-graph-service-deployment -n default
-
-# Then check if service connections are good!
-./scripts/check-service-connections.sh
-
-# And a health check
-./scripts/health-check.sh
-```
----
-
-6. **Monitor HPA during test:**
 ```bash
 kubectl get hpa -w
 ```
 
-7. **Compare results:**
+### 7. Compare Results
+
 - Check metrics CSV for latency
 - Check HPA events: `kubectl describe hpa user-service-hpa`
 - Check pod count: `kubectl get pods -l app=user-service`
+
+---
 
 ## Troubleshooting Commands
 
@@ -508,8 +510,7 @@ kubectl get pods
 kubectl get pods -o wide
 
 # View pod logs
-kubectl 
- <pod-name>
+kubectl logs <pod-name>
 
 # View pod events (why it's failing)
 kubectl describe pod <pod-name>
@@ -558,9 +559,8 @@ gcloud container clusters delete social-network-cluster --zone us-central1-a
 ## Next Steps
 
 1. **Set up autoscaling** - Configure HPA (Horizontal Pod Autoscaler)
-2. **Fix nginx-lua-scripts** - Add Lua scripts ConfigMap properly
-3. **Set up monitoring** - Configure Prometheus & Grafana
-4. **Production hardening** - Security, backups, etc.
+2. **Set up monitoring** - Configure Prometheus & Grafana
+3. **Production hardening** - Security, backups, etc.
 
 ---
 
@@ -578,5 +578,3 @@ The deployment script handles all of this automatically. Just run it and wait!
 ---
 
 **Questions?** Check the troubleshooting section or look at pod logs for specific errors.
-
-Okay, this is looking a lot better. first I ran the quick test which got a perfect score, then I ran the peak-test which, while not perfect, did a lot better. Can you write a new test in the @k6-tests directory, called sweet-test, which is challenging, about as long as the peak test, but not unreasonable for the limitations of my nodes. Something that proves my autoscaling is working correctly, but that is actually acheivable. Please begin by running a few commands to understand the constraints of my system, then write this sweet-test based on what you find.

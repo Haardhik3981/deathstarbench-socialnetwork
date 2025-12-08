@@ -2,7 +2,8 @@
 #
 # WHAT THIS DOES:
 # Manages the home timeline (feed) that shows posts from followed users.
-# Connects to home-timeline-redis.
+# Aggregates posts from multiple users into a single timeline view.
+# Connects to home-timeline-redis for caching.
 
 apiVersion: apps/v1
 kind: Deployment
@@ -13,17 +14,20 @@ metadata:
     app: home-timeline-service
     component: backend
     microservice: deathstarbench
+
 spec:
-  replicas: 1  # Reduced from 2 for development/testing to save CPU resources
+  replicas: 1
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 0  # With 1 replica, we can't allow unavailability
+      maxUnavailable: 0
       maxSurge: 1
+
   selector:
     matchLabels:
       app: home-timeline-service
       component: backend
+
   template:
     metadata:
       labels:
@@ -33,20 +37,23 @@ spec:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9090"
+
     spec:
       containers:
       - name: home-timeline-service
         image: us-central1-docker.pkg.dev/cse239-479821/social-network-images/social-network-microservices:latest
         imagePullPolicy: IfNotPresent
-        # Binaries are installed to /usr/local/bin/ by make install
         command: ["/usr/local/bin/HomeTimelineService"]
+
         ports:
         - containerPort: 9090
           name: thrift
           protocol: TCP
+
         env:
         - name: SERVICE_NAME
           value: "home-timeline-service"
+
         volumeMounts:
         - name: config
           mountPath: /social-network-microservices/config/jaeger-config.yml
@@ -56,27 +63,27 @@ spec:
           mountPath: /social-network-microservices/config/service-config.json
           subPath: service-config.json
           readOnly: true
+
         resources:
           requests:
-            cpu: 100m  # Reduced from 200m for development/testing
-            memory: 128Mi  # Reduced from 256Mi for development/testing
+            cpu: 100m
+            memory: 256Mi
           limits:
             cpu: 1000m
             memory: 512Mi
-        
-        # Readiness probe: checks if service is ready to receive traffic
-        # Uses netstat/ss to verify port 9090 is listening
+
         readinessProbe:
           exec:
             command: ["/bin/sh", "-c", "pgrep -f HomeTimelineService > /dev/null"]
-          initialDelaySeconds: 10   # Start checking after 5 seconds
-          periodSeconds: 5          # Check every 5 seconds
-          timeoutSeconds: 2        # Timeout after 2 seconds
-          successThreshold: 1      # 1 success = ready
-          failureThreshold: 3     # 3 failures = not ready
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 2
+          successThreshold: 1
+          failureThreshold: 3
+
       volumes:
       - name: config
         configMap:
           name: deathstarbench-config
-      restartPolicy: Always
 
+      restartPolicy: Always

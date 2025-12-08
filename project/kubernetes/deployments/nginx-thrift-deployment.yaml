@@ -10,14 +10,6 @@
 # - Routes HTTP requests to Thrift microservices
 # - Requires Lua scripts and configuration from DeathStarBench
 # - Exposes port 8080 for HTTP API access
-#
-# NOTE: This deployment requires files from DeathStarBench source:
-# - nginx-web-server/lua-scripts/
-# - nginx-web-server/pages/
-# - nginx-web-server/conf/nginx.conf
-# - nginx-web-server/jaeger-config.json
-# - gen-lua/
-# - docker/openresty-thrift/lua-thrift/
 
 apiVersion: apps/v1
 kind: Deployment
@@ -28,86 +20,73 @@ metadata:
     app: nginx-thrift
     component: gateway
     microservice: deathstarbench
+
 spec:
-  replicas: 1  # Reduced from 2 for development/testing to save CPU resources
-  # TEMPORARILY set to 0 - disable nginx-thrift until we fix it
-  # replicas: 0
+  replicas: 1
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 0  # With 1 replica, we can't allow unavailability
+      maxUnavailable: 0
       maxSurge: 1
+
   selector:
     matchLabels:
       app: nginx-thrift
       component: gateway
+
   template:
     metadata:
       labels:
         app: nginx-thrift
         component: gateway
         microservice: deathstarbench
+
     spec:
       containers:
       - name: nginx-thrift
-        # DeathStarBench uses a custom OpenResty image with Thrift support
         image: yg397/openresty-thrift:xenial
         imagePullPolicy: IfNotPresent
+
         ports:
         - containerPort: 8080
           name: http
           protocol: TCP
-        # Environment variables for Kubernetes service discovery
+
         env:
         - name: fqdn_suffix
           value: ".default.svc.cluster.local"
+
         resources:
           requests:
-            cpu: 200m  # Increased from 100m for better ingress performance
-            memory: 128Mi  # Reduced from 256Mi for development/testing
+            cpu: 100m
+            memory: 128Mi
           limits:
-            cpu: 1000m
+            cpu: 1500m
             memory: 512Mi
-        
-        # Readiness probe: checks if nginx-thrift is ready to receive HTTP traffic
-        # Uses HTTP GET on port 8080 to verify service is ready
+
         readinessProbe:
           httpGet:
             path: /
             port: 8080
-          initialDelaySeconds: 10   # Start checking after 5 seconds
-          periodSeconds: 5         # Check every 5 seconds
-          timeoutSeconds: 2       # Timeout after 2 seconds
-          successThreshold: 1     # 1 success = ready
-          failureThreshold: 3     # 3 failures = not ready
-        
-        # Health check - TEMPORARILY DISABLED to see actual errors
-        # livenessProbe:
-        #   httpGet:
-        #     path: /
-        #     port: 8080
-        #   initialDelaySeconds: 30
-        #   periodSeconds: 30
-        # Mount configuration files from ConfigMaps
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 2
+          successThreshold: 1
+          failureThreshold: 3
+
         volumeMounts:
-        # Main nginx configuration file (FIXED: correct path for OpenResty)
         - name: nginx-config
           mountPath: /usr/local/openresty/nginx/conf/nginx.conf
           subPath: nginx.conf
           readOnly: true
-        # Jaeger tracing configuration (nginx expects it here)
         - name: deathstarbench-config
           mountPath: /usr/local/openresty/nginx/jaeger-config.json
           subPath: jaeger-config.json
           readOnly: true
-        # Service configuration (used by Lua scripts)
         - name: deathstarbench-config
           mountPath: /etc/nginx/service-config.json
           subPath: service-config.json
           readOnly: true
-        # Lua scripts for API handlers (nginx expects them here)
-        # Mount each subdirectory as a separate ConfigMap
-        # API subdirectories
         - name: lua-scripts-api-home-timeline
           mountPath: /usr/local/openresty/nginx/lua-scripts/api/home-timeline
           readOnly: true
@@ -120,7 +99,6 @@ spec:
         - name: lua-scripts-api-user-timeline
           mountPath: /usr/local/openresty/nginx/lua-scripts/api/user-timeline
           readOnly: true
-        # WRK2-API subdirectories
         - name: lua-scripts-wrk2-api-home-timeline
           mountPath: /usr/local/openresty/nginx/lua-scripts/wrk2-api/home-timeline
           readOnly: true
@@ -133,26 +111,20 @@ spec:
         - name: lua-scripts-wrk2-api-user-timeline
           mountPath: /usr/local/openresty/nginx/lua-scripts/wrk2-api/user-timeline
           readOnly: true
-        # HTML pages and static assets (nginx expects them here)
         - name: pages
           mountPath: /usr/local/openresty/nginx/pages
           readOnly: true
-        # Generated Lua files from Thrift (needed for service clients)
-        # Mount to /gen-lua (nginx expects it here based on docker-compose and helm charts)
         - name: gen-lua
           mountPath: /gen-lua
           readOnly: true
+
       volumes:
-      # Main configuration ConfigMap
       - name: nginx-config
         configMap:
           name: deathstarbench-config
-      # DeathStarBench configuration (service-config.json, jaeger-config.json)
       - name: deathstarbench-config
         configMap:
           name: deathstarbench-config
-      # Lua scripts for API handlers - each subdirectory as separate ConfigMap
-      # API subdirectories
       - name: lua-scripts-api-home-timeline
         configMap:
           name: nginx-lua-scripts-api-home-timeline
@@ -165,7 +137,6 @@ spec:
       - name: lua-scripts-api-user-timeline
         configMap:
           name: nginx-lua-scripts-api-user-timeline
-      # WRK2-API subdirectories
       - name: lua-scripts-wrk2-api-home-timeline
         configMap:
           name: nginx-lua-scripts-wrk2-api-home-timeline
@@ -178,12 +149,11 @@ spec:
       - name: lua-scripts-wrk2-api-user-timeline
         configMap:
           name: nginx-lua-scripts-wrk2-api-user-timeline
-      # HTML pages and static assets
       - name: pages
         configMap:
           name: nginx-pages
-      # Generated Lua files from Thrift definitions
       - name: gen-lua
         configMap:
           name: nginx-gen-lua
+
       restartPolicy: Always

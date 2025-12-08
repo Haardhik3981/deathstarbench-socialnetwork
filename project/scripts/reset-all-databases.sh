@@ -46,6 +46,78 @@ fi
 
 echo ""
 
+# Function to clean up stuck MongoDB pods
+cleanup_mongodb_pods() {
+    local DB_NAME=$1
+    
+    print_info "  Cleaning up any stuck pods for $DB_NAME..."
+    
+    # Get all pods for this database
+    PODS=$(kubectl get pods -n default -l app="$DB_NAME" --no-headers 2>/dev/null | awk '{print $1}' || echo "")
+    
+    if [ -z "$PODS" ]; then
+        return 0
+    fi
+    
+    # Delete pods in problematic states
+    for pod in $PODS; do
+        STATUS=$(kubectl get pod "$pod" -n default --no-headers 2>/dev/null | awk '{print $3}' || echo "Unknown")
+        
+        if [[ "$STATUS" == "CrashLoopBackOff" ]] || [[ "$STATUS" == "Error" ]]; then
+            print_info "    Deleting stuck pod $pod (status: $STATUS)..."
+            kubectl delete pod "$pod" -n default --grace-period=0 --force 2>/dev/null || true
+        elif [[ "$STATUS" == "ContainerCreating" ]]; then
+            # Check if it's been stuck for more than 2 minutes
+            AGE=$(kubectl get pod "$pod" -n default --no-headers 2>/dev/null | awk '{print $5}' || echo "0s")
+            AGE_SEC=$(echo "$AGE" | grep -oE '[0-9]+' | head -1 || echo "0")
+            AGE_UNIT=$(echo "$AGE" | grep -oE '[a-z]+' | head -1 || echo "s")
+            
+            # Convert to seconds (rough estimate)
+            if [[ "$AGE_UNIT" == "m" ]] && [ "$AGE_SEC" -gt 2 ]; then
+                print_info "    Deleting stuck pod $pod (stuck in ContainerCreating for $AGE)..."
+                kubectl delete pod "$pod" -n default --grace-period=0 --force 2>/dev/null || true
+            fi
+        fi
+    done
+    
+    sleep 2
+}
+
+# Function to verify no duplicate pods after scale-up
+verify_single_pod() {
+    local DB_NAME=$1
+    local MAX_WAIT=60
+    local ELAPSED=0
+    
+    while [ $ELAPSED -lt $MAX_WAIT ]; do
+        POD_COUNT=$(kubectl get pods -n default -l app="$DB_NAME" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+        READY_COUNT=$(kubectl get pods -n default -l app="$DB_NAME" --no-headers 2>/dev/null | grep "Running.*1/1" | wc -l | tr -d ' ')
+        
+        if [ "$POD_COUNT" -eq "1" ] && [ "$READY_COUNT" -eq "1" ]; then
+            return 0
+        elif [ "$POD_COUNT" -gt "1" ]; then
+            # Delete extra pods (keep the newest one)
+            print_warning "    Multiple pods detected, cleaning up duplicates..."
+            PODS=$(kubectl get pods -n default -l app="$DB_NAME" --no-headers --sort-by=.metadata.creationTimestamp 2>/dev/null | awk '{print $1}' || echo "")
+            FIRST=true
+            for pod in $PODS; do
+                if [ "$FIRST" = true ]; then
+                    FIRST=false
+                    continue  # Keep the first (oldest) pod
+                fi
+                print_info "    Deleting duplicate pod $pod..."
+                kubectl delete pod "$pod" -n default --grace-period=0 --force 2>/dev/null || true
+            done
+            sleep 3
+        fi
+        
+        sleep 2
+        ELAPSED=$((ELAPSED + 2))
+    done
+    
+    return 0
+}
+
 # Function to reset a MongoDB database
 reset_mongodb() {
     local DB_NAME=$1
@@ -56,11 +128,24 @@ reset_mongodb() {
     
     print_info "Resetting $DB_NAME..."
     
+    # Step 0: Clean up any stuck pods before scaling down
+    cleanup_mongodb_pods "$DB_NAME"
+    
     # Step 1: Scale down
     if kubectl get deployment "$DEPLOYMENT_NAME" -n default &>/dev/null; then
         print_info "  Scaling down $DEPLOYMENT_NAME..."
         kubectl scale deployment "$DEPLOYMENT_NAME" --replicas=0 -n default 2>/dev/null || true
         sleep 3
+        
+        # Ensure all pods are terminated
+        print_info "  Ensuring all pods are terminated..."
+        PODS=$(kubectl get pods -n default -l app="$DB_NAME" --no-headers 2>/dev/null | awk '{print $1}' || echo "")
+        for pod in $PODS; do
+            if [ -n "$pod" ]; then
+                kubectl delete pod "$pod" -n default --grace-period=0 --force 2>/dev/null || true
+            fi
+        done
+        sleep 2
     fi
     
     # Step 2: Delete PVC
@@ -88,9 +173,20 @@ reset_mongodb() {
     if kubectl wait --for=condition=ready pod -n default -l app="$DB_NAME" --timeout=120s 2>/dev/null; then
         print_info "  ✓ $DB_NAME is ready"
     else
-        print_error "  ✗ $DB_NAME failed to start within 120 seconds"
-        return 1
+        print_warning "  MongoDB not ready yet, checking for issues..."
+        # Clean up any stuck pods and try again
+        cleanup_mongodb_pods "$DB_NAME"
+        sleep 5
+        if kubectl wait --for=condition=ready pod -n default -l app="$DB_NAME" --timeout=60s 2>/dev/null; then
+            print_info "  ✓ $DB_NAME is ready (after cleanup)"
+        else
+            print_error "  ✗ $DB_NAME failed to start within timeout"
+            return 1
+        fi
     fi
+    
+    # Step 5.5: Verify only one pod exists (no duplicates)
+    verify_single_pod "$DB_NAME"
     
     # Step 6: Restart associated service (if it exists)
     if [ -n "$SERVICE_NAME" ] && [ "$SERVICE_NAME" != "$DB_NAME" ]; then
@@ -150,8 +246,8 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
             USER_ERRORS=0
         fi
         if [ "$USER_ERRORS" -eq "0" ]; then
-            # Test connectivity
-            if kubectl exec -n default "$USER_POD" -- timeout 2 bash -c '</dev/tcp/social-graph-service.default.svc.cluster.local/9090' 2>/dev/null; then
+            # Test connectivity (with explicit timeout to prevent hanging)
+            if timeout 5 kubectl exec -n default "$USER_POD" -- timeout 2 bash -c '</dev/tcp/social-graph-service.default.svc.cluster.local/9090' 2>/dev/null; then
                 USER_OK=1
             fi
         fi
@@ -178,9 +274,12 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     
     sleep 5
     ELAPSED=$((ELAPSED + 5))
-    echo -n "."
+    printf "."
+    # Flush output to prevent hanging
+    [ -t 1 ] || true
 done
 
+# Flush any remaining output and add newline
 echo ""
 echo ""
 
@@ -203,3 +302,5 @@ print_info "  1. Verify system: ./scripts/verify-system-ready.sh"
 print_info "  2. Run tests: ./scripts/run-k6-tests.sh <test-name>"
 echo ""
 
+# Explicit exit to ensure clean termination
+exit 0

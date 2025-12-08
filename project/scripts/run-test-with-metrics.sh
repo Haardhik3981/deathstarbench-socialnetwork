@@ -43,14 +43,45 @@ if ! command -v k6 &> /dev/null; then
 fi
 
 # Parse arguments
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    echo "Usage: $0 <test-name> [BASE_URL]"
+    echo ""
+    echo "Available tests:"
+    echo "  quick-test          - Low load validation (10 VUs, 20s) - Verify system works"
+    echo "  constant-load       - Baseline performance (50 VUs, 3 min) - Steady load"
+    echo "  sweet-test          - ⭐ Recommended for HPA demo (350 VUs, 9 min) - Autoscaling demo"
+    echo "  peak-test           - High load spike (400 VUs, ~10 min) - Extreme load test"
+    echo "  stress-test         - Gradual ramp-up (10→400 VUs, ~35 min) - Find breaking point"
+    echo "  cpu-intensive-test  - ⭐ CPU-focused load (10→1000 VUs, ~20 min) - Force CPU-based scaling"
+    echo "  endurance-test      - Long duration (200 VUs, 2.5 hours) - Stability testing"
+    echo "  vpa-learning-test   - ⭐ Recommended for VPA demo (~19.5 min) - VPA learning test"
+    echo ""
+    echo "Examples:"
+    echo "  $0 sweet-test"
+    echo "  $0 vpa-learning-test"
+    echo "  BASE_URL=http://localhost:8080 $0 quick-test"
+    exit 0
+fi
+
 TEST_TYPE="${1:-constant-load}"
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 
 # Validate test type
 if [ ! -f "${K6_TESTS_DIR}/${TEST_TYPE}.js" ]; then
     print_error "Test file not found: ${K6_TESTS_DIR}/${TEST_TYPE}.js"
+    echo ""
     print_info "Available tests:"
-    ls -1 "${K6_TESTS_DIR}"/*.js 2>/dev/null | xargs -n1 basename | sed 's/\.js$//' | sed 's/^/  - /' || true
+    echo "  quick-test          - Low load validation (10 VUs, 20s)"
+    echo "  constant-load       - Baseline performance (50 VUs, 3 min)"
+    echo "  sweet-test          - ⭐ Recommended for HPA demo (350 VUs, 9 min)"
+    echo "  peak-test           - High load spike (400 VUs, ~10 min)"
+    echo "  stress-test         - Gradual ramp-up (10→400 VUs, ~35 min)"
+    echo "  cpu-intensive-test  - ⭐ CPU-focused load (10→1000 VUs, ~20 min) - Force CPU-based scaling"
+    echo "  endurance-test      - Long duration (200 VUs, 2.5 hours)"
+    echo "  vpa-learning-test   - ⭐ Recommended for VPA demo (~19.5 min)"
+    echo ""
+    print_info "Usage: $0 <test-name>"
+    print_info "Run '$0 --help' for more information"
     exit 1
 fi
 

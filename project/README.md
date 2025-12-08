@@ -2,118 +2,118 @@
 
 ## Overview
 
-This project implements a complete microservice deployment pipeline for the DeathStarBench Social Network benchmark. The system includes containerization, Kubernetes orchestration, autoscaling, monitoring, and comprehensive load testing.
+This project implements a complete microservice deployment pipeline for the DeathStarBench Social Network benchmark. The system includes containerization, Kubernetes orchestration, autoscaling (HPA/VPA), monitoring (Prometheus/Grafana), and comprehensive load testing.
 
 ## Project Structure
 
 ```
 project/
-├── README.md                    # This file - project overview and documentation
-├── docker/                      # Dockerfiles for each microservice
-│   ├── nginx/                   # Nginx reverse proxy Dockerfile
-│   ├── social-graph/            # Social graph service Dockerfile
-│   ├── user-timeline/           # User timeline service Dockerfile
-│   ├── user/                    # User service Dockerfile
+├── README.md                    # This file - project overview
+├── DEPLOYMENT_GUIDE.md          # Step-by-step deployment instructions
+├── CI_CD_DOCUMENTATION.md       # GitHub Actions CI/CD pipeline documentation
+├── TESTERS_MANUAL.md            # Comprehensive testing guide
+├── VPA_VS_HPA_COMPARISON.md     # Comparison of autoscaling approaches
+├── project_description.txt      # Original project requirements
+│
+├── docker/                      # Dockerfiles for containerization
+│   ├── nginx/                   # Nginx reverse proxy
+│   ├── user/                    # User service
+│   ├── social-graph/            # Social graph service
+│   ├── user-timeline/           # User timeline service
 │   └── compose/                 # Docker Compose for local testing
+│
 ├── kubernetes/                  # Kubernetes manifests
-│   ├── deployments/             # Deployment manifests for each service
-│   ├── services/                # Service manifests (ClusterIP, NodePort, etc.)
+│   ├── deployments/             # Deployment configurations
+│   ├── services/                # Service definitions (ClusterIP, NodePort)
 │   ├── autoscaling/             # HPA and VPA configurations
 │   ├── monitoring/              # Prometheus and Grafana setup
 │   └── configmaps/              # Configuration files as ConfigMaps
-├── k6-tests/                    # k6 load testing scripts
-│   ├── constant-load.js         # Constant load test
-│   ├── peak-test.js             # Peak/spike test
-│   ├── stress-test.js           # Stress test (gradual ramp-up)
-│   └── endurance-test.js        # Endurance test (long duration)
-├── scripts/                     # Helper scripts for deployment
-│   ├── deploy-gke.sh            # Deploy to Google Kubernetes Engine
-│   ├── deploy-nautilus.sh       # Deploy to Nautilus cluster
-│   └── setup-monitoring.sh      # Set up Prometheus and Grafana
+│
+├── k6-tests/                    # Load testing scripts
+│   └── README.md                # Test documentation
+│
+├── scripts/                     # Helper scripts
+│   └── README.md                # Script documentation
+│
+├── k6-results/                  # Test results (generated)
 └── docs/                        # Additional documentation
-    └── deployment-guide.md      # Step-by-step deployment instructions
 ```
 
-## Components
+## Key Components
 
-### 1. Application: DeathStarBench Social Network
-- **What it is**: A microservice benchmark suite that simulates a social network
-- **Why we use it**: Industry-standard benchmark for evaluating microservice performance
-- **Key services**: User service, Social Graph service, User Timeline service, etc.
+### Application
+- **DeathStarBench Social Network**: Microservice benchmark simulating a social network
+- **Services**: User, Social Graph, Timeline, Post Storage, Media, etc.
 
-### 2. Containerization (Docker)
-- **What it does**: Packages each microservice with its dependencies into isolated containers
-- **Why it matters**: Ensures consistent behavior across different environments (local, GKE, Nautilus)
+### Containerization
+- **Docker**: Packages each microservice with dependencies
+- **Docker Compose**: Local development and testing
 
-### 3. Orchestration (Kubernetes)
-- **What it does**: Manages container lifecycle, networking, scaling, and resource allocation
-- **Why it matters**: Automates deployment and scaling, handles failures automatically
+### Orchestration
+- **Kubernetes**: Manages container lifecycle, networking, and scaling
+- **Deployments**: Pod management and rolling updates
+- **Services**: Service discovery and load balancing
 
-### 4. Autoscaling
-- **HPA (Horizontal Pod Autoscaler)**: Automatically increases/decreases the number of pod replicas
-- **VPA (Vertical Pod Autoscaler)**: Automatically adjusts CPU/memory limits per pod
-- **Why it matters**: Optimizes resource usage and maintains performance under varying load
+### Autoscaling
+- **HPA (Horizontal Pod Autoscaler)**: Scales pod replicas based on CPU/memory/latency
+- **VPA (Vertical Pod Autoscaler)**: Adjusts CPU/memory requests/limits per pod
+- See `kubernetes/autoscaling/README.md` for details
 
-### 5. Monitoring (Prometheus & Grafana)
-- **Prometheus**: Collects time-series metrics from all services
-- **Grafana**: Visualizes metrics in dashboards
-- **Why it matters**: Provides visibility into system performance and helps identify bottlenecks
+### Monitoring
+- **Prometheus**: Time-series metrics collection
+- **Grafana**: Metrics visualization and dashboards
+- See `kubernetes/monitoring/METRICS_TRACKING_GUIDE.md` for queries
 
-### 6. Load Testing (k6)
-- **What it does**: Simulates user traffic to test system performance
-- **Test types**: Constant load, peak testing, stress testing, endurance testing
-- **Why it matters**: Validates that the system can handle expected and peak loads
+### Load Testing
+- **k6**: Performance testing framework
+- **Test Types**: Constant load, peak, stress, endurance, CPU-intensive
+- See `k6-tests/README.md` for test details
 
 ## Quick Start
 
 ### Prerequisites
-- Docker Desktop installed
-- kubectl CLI installed
-- gcloud CLI installed (for GKE)
-- k6 installed
-- Access to GKE cluster or Nautilus cluster
+- Docker Desktop
+- kubectl CLI
+- gcloud CLI (for GKE)
+- k6 installed (`brew install k6`)
 
-### Local Development
-1. Clone DeathStarBench repository
-2. Build Docker images: `docker-compose build`
-3. Run locally: `docker-compose up`
+### Deployment
+1. **Set up cluster access**: `kubectl config use-context <your-cluster>`
+2. **Deploy services**: `./deploy-everything.sh` or see `DEPLOYMENT_GUIDE.md`
+3. **Set up monitoring**: Deploy Prometheus/Grafana from `kubernetes/monitoring/`
+4. **Run tests**: `./scripts/run-test-with-metrics.sh <test-name>`
 
-### Kubernetes Deployment
-1. Set up cluster access: `kubectl config use-context <your-cluster>`
-2. Deploy services: `./scripts/deploy-gke.sh` or `./scripts/deploy-nautilus.sh`
-3. Set up monitoring: `./scripts/setup-monitoring.sh`
-4. Run load tests: `k6 run k6-tests/constant-load.js`
+### Testing
+1. **Reset databases**: `./scripts/reset-all-databases.sh`
+2. **Verify system**: `./scripts/verify-system-ready.sh`
+3. **Port-forward**: `kubectl port-forward svc/nginx-thrift-service 8080:8080`
+4. **Run test**: `./scripts/run-test-with-metrics.sh sweet-test`
 
-## Testing Strategy
+## Documentation
 
-1. **Constant Load Test**: Baseline performance measurement
-2. **Peak Test**: Sudden traffic spike to test autoscaling
-3. **Stress Test**: Gradual ramp-up to find breaking points
-4. **Endurance Test**: Long-running test to check for resource leaks
-
-## Metrics to Monitor
-
-- **Latency**: p95, p99 response times
-- **Throughput**: Requests per second (RPS)
-- **Resource Usage**: CPU and memory utilization
-- **Scaling Behavior**: Pod count over time
-- **Error Rates**: Failed requests percentage
+- **DEPLOYMENT_GUIDE.md**: Complete deployment instructions
+- **TESTERS_MANUAL.md**: Testing workflow and best practices
+- **CI_CD_DOCUMENTATION.md**: GitHub Actions pipeline details
+- **VPA_VS_HPA_COMPARISON.md**: Autoscaling strategy comparison
+- **kubernetes/autoscaling/README.md**: Autoscaling configuration guide
+- **kubernetes/monitoring/METRICS_TRACKING_GUIDE.md**: Prometheus queries
+- **k6-tests/README.md**: Load test documentation
+- **scripts/README.md**: Script reference
 
 ## CI/CD Pipeline
 
-This project includes a comprehensive CI/CD pipeline using GitHub Actions:
+Automated validation and deployment via GitHub Actions:
+- Kubernetes manifest validation
+- Shell script linting
+- Security scanning
+- k6 test validation
+- Optional automated deployment
 
-- **Automatic Validation**: Kubernetes manifests are validated on every push
-- **Code Quality**: Shell scripts are linted for best practices
-- **Security Scanning**: Automated security vulnerability scanning
-- **k6 Test Validation**: Load test scripts are validated for syntax
-- **Optional Deployment**: Can deploy to Kubernetes clusters automatically
-
-**Documentation**: See [CI_CD_DOCUMENTATION.md](CI_CD_DOCUMENTATION.md) for complete details.
-
-**Workflow File**: `.github/workflows/project-ci-cd.yaml`
+See `CI_CD_DOCUMENTATION.md` for details.
 
 ## Next Steps
 
-See individual file comments for detailed explanations of each component.
-
+1. Read `DEPLOYMENT_GUIDE.md` for deployment instructions
+2. Review `TESTERS_MANUAL.md` for testing workflow
+3. Check `kubernetes/autoscaling/README.md` for autoscaling setup
+4. Explore `k6-tests/README.md` for available load tests

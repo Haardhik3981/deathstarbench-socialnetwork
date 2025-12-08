@@ -36,11 +36,11 @@ spec:
           mountPath: /data/db
         resources:
           requests:
-            cpu: 100m  # Reduced from 200m for development/testing
-            memory: 512Mi
+            cpu: 300m  # Increased from 100m to handle register endpoint load (61% success rate) - more CPU for index ops and write lock contention
+            memory: 1Gi  # Increased from 512Mi for better caching and connection pool handling
           limits:
-            cpu: 1000m
-            memory: 2Gi
+            cpu: 2000m  # Increased from 1000m for headroom during registration spikes
+            memory: 4Gi  # Increased from 2Gi for larger working set and better cache performance
       volumes:
       - name: mongodb-data
         persistentVolumeClaim:

@@ -6,13 +6,14 @@ This guide provides Prometheus queries (PromQL) for tracking the most important 
 
 1. [CPU Metrics](#cpu-metrics)
 2. [Memory Metrics](#memory-metrics)
-3. [Latency Metrics](#latency-metrics)
-4. [Throughput Metrics](#throughput-metrics)
-5. [Network Metrics](#network-metrics)
-6. [Pod & Replica Metrics](#pod--replica-metrics)
-7. [HPA Metrics](#hpa-metrics)
-8. [VPA Metrics](#vpa-metrics)
-9. [Error & Status Metrics](#error--status-metrics)
+3. [All Services Aggregated Metrics](#all-services-aggregated-metrics) ⭐ **NEW: Multi-Service Queries**
+4. [Latency Metrics](#latency-metrics)
+5. [Throughput Metrics](#throughput-metrics)
+6. [Network Metrics](#network-metrics)
+7. [Pod & Replica Metrics](#pod--replica-metrics)
+8. [HPA Metrics](#hpa-metrics)
+9. [VPA Metrics](#vpa-metrics)
+10. [Error & Status Metrics](#error--status-metrics)
 
 ## Quick Reference: Key Metrics Locations
 
@@ -20,11 +21,41 @@ This guide provides Prometheus queries (PromQL) for tracking the most important 
 |--------|--------|---------------|
 | **Latency p95/p99** | k6 JSON | `jq '.metrics.http_req_duration.values.p95' k6-results/*.json` |
 | **Throughput** | k6 JSON | `jq '.metrics.http_reqs.values.rate' k6-results/*.json` |
-| **CPU Usage** | Prometheus | `rate(container_cpu_usage_seconds_total{pod=~"user-service.*"}[5m])` |
-| **Memory Usage** | Prometheus | `container_memory_usage_bytes{pod=~"user-service.*"}` |
-| **Pod Count** | Prometheus | `count(kube_pod_info{pod=~"user-service.*"})` |
+| **CPU Usage (Single Service)** | Prometheus | `rate(container_cpu_usage_seconds_total{pod=~"user-service.*"}[5m])` |
+| **CPU Usage (All Services - Stacked)** | Prometheus | ⭐ See [CPU Usage by Service (Stacked)](#cpu-usage-by-service-stacked-graph--primary-query) below |
+| **Memory Usage (Single Service)** | Prometheus | `container_memory_usage_bytes{pod=~"user-service.*"}` |
+| **Memory Usage (All Services - Stacked)** | Prometheus | See [Memory Usage by Service (Stacked)](#memory-usage-by-service-stacked-graph) below |
+| **Pod Count (Single Service)** | Prometheus | `count(kube_pod_info{pod=~"user-service.*"})` |
+| **Pod Count (All Services)** | Prometheus | See [All Services Aggregated Metrics](#all-services-aggregated-metrics) section |
 | **Autoscaling Events** | kubectl logs | `kubectl get hpa -w` (run during test) |
 | **Cost** | Manual calculation | Pod-hours × CPU/Memory × GCP pricing |
+
+### ⭐ Quick Start: CPU Usage by Service (Stacked Graph)
+
+**Copy this query into Grafana:**
+```promql
+sum by (service_name) (
+  label_replace(
+    sum(rate(container_cpu_usage_seconds_total{
+      pod=~".*-service-deployment-.*|nginx-thrift-deployment-.*|write-home-timeline-service-deployment-.*",
+      container!="POD",
+      container!=""
+    }[5m])) by (pod) * 1000,
+    "service_name",
+    "$1",
+    "pod",
+    "(.*)-deployment-.*"
+  )
+)
+```
+
+**To enable stacking:**
+1. Panel type: **Time series**
+2. **Panel options** → **Graph styles** → **Stack**: Select **"Normal"**
+3. **Fill opacity**: 0.3-0.5
+4. **Y-axis**: Unit = Millicores (m), Min = 0
+
+**Result:** Each service appears as a colored area in a stacked graph, showing total CPU usage per service over time.
 
 ---
 ## Experiment Configurations
@@ -50,7 +81,7 @@ This guide provides Prometheus queries (PromQL) for tracking the most important 
 
 ### 1. CPU Usage (Current Consumption)
 
-**PromQL Query:**
+**PromQL Query (Single Service - user-service):**
 ```promql
 # CPU usage in millicores (m) for user-service pods
 sum(rate(container_cpu_usage_seconds_total{pod=~"user-service-deployment-.*", container!="POD", container!=""}[5m])) by (pod) * 1000
@@ -184,7 +215,7 @@ sum(rate(container_cpu_usage_seconds_total{pod=~"user-service-deployment-.*"}[5m
 
 ### 4. Memory Usage
 
-**PromQL Query:**
+**PromQL Query (Single Service - user-service):**
 ```promql
 # Memory usage in bytes for user-service pods
 sum(container_memory_working_set_bytes{pod=~"user-service-deployment-.*", container!="POD", container!=""}) by (pod)
@@ -194,6 +225,46 @@ sum(container_memory_working_set_bytes{pod=~"user-service-deployment-.*", contai
 
 # Average memory usage across pods
 avg(container_memory_working_set_bytes{pod=~"user-service-deployment-.*", container!="POD"}) / 1024 / 1024
+```
+
+**PromQL Query (All Services - Multi-Service Graph):**
+```promql
+# Total memory usage per service (aggregated across all pods per service)
+sum by (service) (
+  label_replace(
+    sum(container_memory_working_set_bytes{
+      pod=~".*-service-deployment-.*|nginx-thrift-deployment-.*|write-home-timeline-service-deployment-.*",
+      container!="POD",
+      container!=""
+    }) by (pod),
+    "service",
+    "$1",
+    "pod",
+    "(.*)-deployment-.*"
+  )
+) / 1024 / 1024
+
+# Average memory usage per service (across all pods of each service)
+avg by (service) (
+  label_replace(
+    sum(container_memory_working_set_bytes{
+      pod=~".*-service-deployment-.*|nginx-thrift-deployment-.*|write-home-timeline-service-deployment-.*",
+      container!="POD",
+      container!=""
+    }) by (pod) / 1024 / 1024,
+    "service",
+    "$1",
+    "pod",
+    "(.*)-deployment-.*"
+  )
+)
+
+# Memory usage per pod (all services, one line per pod)
+sum(container_memory_working_set_bytes{
+  pod=~".*-service-deployment-.*|nginx-thrift-deployment-.*|write-home-timeline-service-deployment-.*",
+  container!="POD",
+  container!=""
+}) by (pod) / 1024 / 1024
 ```
 
 **What it means:**
@@ -311,108 +382,423 @@ rate(container_oom_kills_total{pod=~"user-service-deployment-.*"}[5m])
 
 ---
 
+## All Services Aggregated Metrics
+
+### Quick Reference: All Services in One Graph (Stacked)
+
+These queries aggregate metrics across **all microservices** so you can see all services in a single Grafana graph. Each service will appear as a separate stacked area.
+
+**Service Pattern Matching:**
+- Matches: `*-service-deployment-*`, `nginx-thrift-deployment-*`, `write-home-timeline-service-deployment-*`
+- Covers all 12 microservices + nginx-thrift + write-home-timeline
+
+### CPU Usage by Service (Stacked Graph) ⭐ **PRIMARY QUERY**
+
+**PromQL Query (Groups by Service Name - Ready for Stacking):**
+```promql
+# CPU usage per service (sum across all pods of each service)
+# Each service = one colored area in the stacked graph
+sum by (service_name) (
+  label_replace(
+    sum(rate(container_cpu_usage_seconds_total{
+      pod=~".*-service-deployment-.*|nginx-thrift-deployment-.*|write-home-timeline-service-deployment-.*",
+      container!="POD",
+      container!=""
+    }[5m])) by (pod) * 1000,
+    "service_name",
+    "$1",
+    "pod",
+    "(.*)-deployment-.*"
+  )
+)
+```
+
+**What this query does:**
+1. Matches all service pods (12 microservices + nginx-thrift + write-home-timeline)
+2. Calculates CPU usage per pod in millicores
+3. Uses `label_replace` to extract service name from pod name
+   - Example: `user-service-deployment-abc123` → `user-service`
+4. Groups by `service_name` and sums CPU across all pods of each service
+5. Result: One time series per service (not per pod)
+
+**Grafana Setup for Stacked Visualization:**
+
+1. **Add the Query:**
+   - Copy the query above into Grafana
+   - Panel type: **Time series**
+
+2. **Enable Stacking:**
+   - Go to **Panel options** (right sidebar)
+   - Scroll to **"Graph styles"** section
+   - Find **"Stack"** dropdown
+   - Select **"Normal"** (for absolute values) or **"100%"** (for percentage view)
+   - **Fill opacity**: Set to 0.3-0.5 (adjust for visibility)
+   - **Gradient mode**: Optional - "Opacity" for better visual distinction
+
+3. **Panel Settings:**
+   - **Title**: "CPU Usage by Service (Stacked)"
+   - **Y-axis**: 
+     - **Unit**: Millicores (m)
+     - **Min**: 0 (important for proper stacking)
+     - **Max**: Auto or set specific value
+   - **Legend**: 
+     - **Show legend**: Yes
+     - **Placement**: Bottom or Right
+
+**What it shows:**
+- **Total CPU per service**: Sum of CPU across all pods of each service
+- Each service appears as a colored area in the stack
+- Stacked total shows overall CPU usage across all services
+- Easy to see which services consume the most CPU at any time
+- Similar to your example graph, but grouped by service name instead of individual pods
+
+**Example Output:**
+- `compose-post-service`: ~50m CPU (sum of all compose-post pods)
+- `home-timeline-service`: ~40m CPU (sum of all home-timeline pods)
+- `nginx-thrift`: ~30m CPU
+- `post-storage-service`: ~60m CPU
+- etc.
+
+**Alternative Query (If label_replace doesn't work):**
+```promql
+# CPU usage per pod (all services)
+# Then use Grafana Transform to group by service name
+sum(rate(container_cpu_usage_seconds_total{
+  pod=~".*-service-deployment-.*|nginx-thrift-deployment-.*|write-home-timeline-service-deployment-.*",
+  container!="POD",
+  container!=""
+}[5m])) by (pod) * 1000
+```
+
+**Then in Grafana:**
+1. Add **Transform** → **"Add field from calculation"**
+2. Or use **"Rename by regex"** transform:
+   - Match: `(.*)-deployment-.*`
+   - Replace: `$1`
+3. Add **"Group by"** transform:
+   - Group by: The new service name field
+   - Operation: Sum
+
+### Memory Usage by Service (Stacked Graph)
+
+**PromQL Query:**
+```promql
+# Memory usage per service (sum across all pods of each service)
+sum by (service_name) (
+  label_replace(
+    sum(container_memory_working_set_bytes{
+      pod=~".*-service-deployment-.*|nginx-thrift-deployment-.*|write-home-timeline-service-deployment-.*",
+      container!="POD",
+      container!=""
+    }) by (pod),
+    "service_name",
+    "$1",
+    "pod",
+    "(.*)-deployment-.*"
+  )
+) / 1024 / 1024
+```
+
+**Alternative Query (If label_replace doesn't work):**
+```promql
+# Memory usage per pod (all services)
+# Use Grafana Transform to group by service name
+sum(container_memory_working_set_bytes{
+  pod=~".*-service-deployment-.*|nginx-thrift-deployment-.*|write-home-timeline-service-deployment-.*",
+  container!="POD",
+  container!=""
+}) by (pod) / 1024 / 1024
+```
+
+**Grafana Setup:**
+- Same stacking setup as CPU usage above
+- **Stack**: Normal
+- **Y-axis**: MiB (Mebibytes)
+
+**What it shows:**
+- **Total memory per service**: Sum of memory across all pods of each service
+- Each service appears as a colored area in the stack
+- Stacked total shows overall memory usage across all services
+
+### CPU Usage Percentage by Service (Stacked)
+
+**PromQL Query:**
+```promql
+# CPU usage as percentage of request (per service)
+sum by (service_name) (
+  label_replace(
+    (sum(rate(container_cpu_usage_seconds_total{
+      pod=~".*-service-deployment-.*|nginx-thrift-deployment-.*|write-home-timeline-service-deployment-.*",
+      container!="POD"
+    }[5m])) by (pod) * 1000)
+    /
+    (sum(container_spec_cpu_request{
+      pod=~".*-service-deployment-.*|nginx-thrift-deployment-.*|write-home-timeline-service-deployment-.*",
+      container!="POD"
+    }) by (pod)),
+    "service_name",
+    "$1",
+    "pod",
+    "(.*)-deployment-.*"
+  )
+) * 100
+```
+
+**Grafana Setup:**
+- **Stack**: 100% (shows percentage distribution)
+- **Y-axis**: Percentage (0-100%)
+
+**What it shows:**
+- CPU usage as percentage of requested CPU for each service
+- Useful for identifying which services are approaching HPA thresholds
+- Stacked to 100% shows relative CPU usage distribution
+
+### Memory Usage Percentage by Service (Stacked)
+
+**PromQL Query:**
+```promql
+# Memory usage as percentage of request (per service)
+sum by (service_name) (
+  label_replace(
+    (sum(container_memory_working_set_bytes{
+      pod=~".*-service-deployment-.*|nginx-thrift-deployment-.*|write-home-timeline-service-deployment-.*",
+      container!="POD"
+    }) by (pod))
+    /
+    (sum(container_spec_memory_request_bytes{
+      pod=~".*-service-deployment-.*|nginx-thrift-deployment-.*|write-home-timeline-service-deployment-.*",
+      container!="POD"
+    }) by (pod)),
+    "service_name",
+    "$1",
+    "pod",
+    "(.*)-deployment-.*"
+  )
+) * 100
+```
+
+**Grafana Setup:**
+- **Stack**: 100% (shows percentage distribution)
+- **Y-axis**: Percentage (0-100%)
+
+**What it shows:**
+- Memory usage as percentage of requested memory for each service
+- Useful for identifying which services are approaching HPA thresholds
+
+### Alternative: Using Grafana Transforms (If label_replace Doesn't Work)
+
+If `label_replace` doesn't work in your Prometheus setup, use per-pod queries and let Grafana group by service:
+
+**Step 1: Add Per-Pod Query**
+```promql
+# CPU usage per pod (all services)
+sum(rate(container_cpu_usage_seconds_total{
+  pod=~".*-service-deployment-.*|nginx-thrift-deployment-.*|write-home-timeline-service-deployment-.*",
+  container!="POD",
+  container!=""
+}[5m])) by (pod) * 1000
+```
+
+**Step 2: Add Grafana Transforms**
+
+1. **Add "Add field from calculation"** or **"Organize fields"** transform
+2. **Add "Group by"** transform:
+   - **Field**: `pod`
+   - **Operation**: Sum
+   - **Alias**: Use regex to extract service name: `$1` from pattern `(.*)-deployment-.*`
+
+3. **Better approach - Use "Add field from calculation"** with regex:
+   - Add transform: **"Add field from calculation"**
+   - Mode: **"Binary operation"**
+   - Or use **"Rename by regex"** transform:
+     - Match: `(.*)-deployment-.*`
+     - Replace: `$1`
+   - Then **"Group by"** transform grouping by the new service name field
+
+**Step 3: Enable Stacking**
+- Go to **Panel options** → **Visualization** → **Time series**
+- **Stack**: Normal (or 100% for percentage)
+- **Fill opacity**: 0.3-0.5
+
+### Detailed Grafana Stacking Setup
+
+**To create a stacked graph like your example:**
+
+1. **Panel Settings:**
+   - **Visualization**: Time series
+   - **Panel title**: "CPU Usage by Service (Stacked)"
+
+2. **Graph Styles:**
+   - **Stack**: **Normal** (for absolute values) or **100%** (for percentage)
+   - **Fill opacity**: 0.3-0.5 (adjust for visibility)
+   - **Line width**: 1-2 (optional, for area borders)
+   - **Gradient mode**: None or Opacity (for better visual distinction)
+
+3. **Legend:**
+   - **Show legend**: Yes
+   - **Legend placement**: Bottom or Right
+   - **Legend values**: Optional (Current, Min, Max, etc.)
+
+4. **Y-Axis:**
+   - **Unit**: Millicores (m) for CPU, MiB for Memory
+   - **Min**: 0 (for proper stacking)
+   - **Max**: Auto or set specific value
+
+5. **X-Axis:**
+   - **Time range**: Auto or your test duration
+   - **Show**: Yes
+
+### Tips for Using All-Services Queries
+
+1. **Service Name Extraction:**
+   - The `label_replace` function extracts service name from pod name
+   - Pattern: `(.*)-deployment-.*` captures service name
+   - Example: `user-service-deployment-abc123` → `user-service`
+   - **Label name**: Use `service_name` (not `service`) to avoid conflicts
+
+2. **Stacking Options:**
+   - **Normal**: Shows absolute values, total = sum of all services
+   - **100%**: Shows percentage distribution, total always = 100%
+   - **None**: Shows overlapping lines (not stacked)
+
+3. **Filtering Specific Services:**
+   - Add filter to query: `service_name=~"user-service|compose-post-service"`
+   - Or filter by pod name pattern: `pod=~"user-service-deployment-.*|compose-post-service-deployment-.*"`
+
+4. **Troubleshooting:**
+   - If services don't appear: Check that pod names match the regex pattern
+   - If stacking doesn't work: Ensure all series have the same time range
+   - If colors overlap: Adjust fill opacity or use different visualization mode
+
+---
+
 ## Latency Metrics
 
 ### 7. Request Latency (p50, p95, p99)
 
-**PromQL Query:**
-```promql
-# p50 latency (median)
-histogram_quantile(0.50, 
-  sum(rate(http_request_duration_seconds_bucket{service="user-service"}[5m])) by (le, pod)
-)
+**⚠️ IMPORTANT: DeathStarBench services use Thrift RPC, not HTTP, so `http_request_duration_seconds` metrics are NOT available.**
 
-# p95 latency
-histogram_quantile(0.95, 
-  sum(rate(http_request_duration_seconds_bucket{service="user-service"}[5m])) by (le, pod)
-)
+**Primary Source: k6 Test Results (External Monitoring)**
 
-# p99 latency
-histogram_quantile(0.99, 
-  sum(rate(http_request_duration_seconds_bucket{service="user-service"}[5m])) by (le, pod)
-)
+Latency metrics should be obtained from k6 test results, not Prometheus:
 
-# Average latency
-sum(rate(http_request_duration_seconds_sum{service="user-service"}[5m])) by (pod)
-/
-sum(rate(http_request_duration_seconds_count{service="user-service"}[5m])) by (pod)
+```bash
+# Extract latency metrics from k6 JSON results
+jq '.metrics.http_req_duration.values.p50' k6-results/*.json
+jq '.metrics.http_req_duration.values.p95' k6-results/*.json
+jq '.metrics.http_req_duration.values.p99' k6-results/*.json
+
+# Or from summary files
+grep "p(95)" k6-results/*_summary.txt
+grep "p(99)" k6-results/*_summary.txt
 ```
 
-**Note:** Metric names may vary. Common alternatives:
-- `http_request_duration_seconds`
-- `http_server_request_duration_seconds`
-- `nginx_http_request_duration_seconds`
-- Custom metrics from your application
+**Alternative: Use CPU/Resource Metrics as Latency Indicators**
+
+While not direct latency measurements, these metrics correlate with performance:
+
+```promql
+# CPU usage per request (proxy for processing time)
+# Higher CPU usage = more processing = potentially higher latency
+sum(rate(container_cpu_usage_seconds_total{pod=~"user-service-deployment-.*", container!="POD"}[5m])) by (pod) * 1000
+
+# CPU throttling (indicates resource constraints = higher latency)
+sum(rate(container_cpu_cfs_throttled_seconds_total{pod=~"user-service-deployment-.*", container!="POD"}[5m])) by (pod)
+
+# Memory pressure (can cause GC pauses = latency spikes)
+sum(container_memory_working_set_bytes{pod=~"user-service-deployment-.*", container!="POD"}) by (pod)
+/
+sum(container_spec_memory_limit_bytes{pod=~"user-service-deployment-.*", container!="POD"}) by (pod)
+* 100
+
+# If HTTP metrics were available (for reference):
+# histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service="user-service"}[5m])) by (le, pod))
+```
 
 **What it means:**
-- Time taken to process HTTP requests
-- p50 = median (50% of requests faster)
-- p95 = 95th percentile (95% of requests faster)
-- p99 = 99th percentile (99% of requests faster)
+- **k6 results**: Actual end-to-end latency from load tests (most accurate)
+- **CPU usage**: High CPU = pods working hard = may indicate latency issues
+- **CPU throttling**: Throttling = requests delayed = higher latency
+- **Memory pressure**: High memory = GC pauses = latency spikes
 
 **Why it's important:**
-- **Primary performance metric** - your target is <500ms average
+- Primary metric for latency-based HPA (from k6 or external monitoring)
 - High latency = poor user experience
-- p99 shows worst-case performance
+- Resource constraints (CPU throttling, memory pressure) cause latency
 
 **Normal ranges:**
-- **p50**: 50-200ms (good)
-- **p95**: 200-500ms (acceptable)
-- **p99**: 500-1000ms (monitor closely)
-- **Average**: <500ms (your target)
+- **k6 p50**: < 100ms
+- **k6 p95**: < 500ms
+- **k6 p99**: < 1000ms
+- **CPU usage**: < 70% of request (HPA target)
+- **CPU throttling**: 0% (no throttling)
+- **Memory pressure**: < 80% of limit
 
 **Abnormal ranges:**
-- **p95 > 1000ms**: Poor performance, investigate
-- **p99 > 2000ms**: Critical, immediate action needed
-- **Average > 500ms**: Failing your target
+- **k6 p95 > 1000ms**: System is overloaded
+- **k6 p99 > 5000ms**: Critical performance issue
+- **CPU throttling > 0%**: Resource constraints causing latency
+- **Memory > 90%**: Risk of GC pauses and latency spikes
 
 **How HPA affects it:**
-- More pods = lower latency (load distribution)
+- More pods = lower per-pod CPU = lower latency (load distribution)
 - HPA scaling up reduces latency by reducing per-pod load
-- Latency-based HPA directly targets this metric
+- Latency-based HPA uses k6 results or external monitoring
 
 **How VPA affects it:**
 - Higher CPU/memory = pods process requests faster = lower latency
 - VPA optimizing resources improves latency
-- Insufficient resources = higher latency
+- Insufficient resources = CPU throttling = higher latency
 
 ---
 
 ### 8. Request Latency by Endpoint
 
-**PromQL Query:**
-```promql
-# p95 latency by endpoint
-histogram_quantile(0.95, 
-  sum(rate(http_request_duration_seconds_bucket{service="user-service"}[5m])) by (le, endpoint)
-)
+**⚠️ IMPORTANT: DeathStarBench services use Thrift RPC, not HTTP, so endpoint-level latency metrics are NOT available.**
 
-# Average latency by endpoint
-sum(rate(http_request_duration_seconds_sum{service="user-service"}[5m])) by (endpoint)
-/
-sum(rate(http_request_duration_seconds_count{service="user-service"}[5m])) by (endpoint)
+**Primary Source: k6 Test Results with Endpoint Breakdown**
+
+Use k6 test results to analyze latency by endpoint:
+
+```bash
+# Extract latency by endpoint from k6 JSON
+jq '.metrics | to_entries | map(select(.key | contains("duration"))) | .[] | {name: .key, p95: .value.values.p95, p99: .value.values.p99}' k6-results/*.json
+
+# Or analyze k6 summary by endpoint tag
+grep -A 5 "ComposePost\|ReadHomeTimeline\|RegisterUser" k6-results/*_summary.txt
+```
+
+**Alternative: Use Resource Metrics to Identify Bottlenecks**
+
+While not endpoint-specific, you can identify which services are under stress:
+
+```promql
+# CPU usage by service (identifies which services are overloaded)
+sum(rate(container_cpu_usage_seconds_total{pod=~"user-service-deployment-.*", container!="POD"}[5m])) by (pod) * 1000
+sum(rate(container_cpu_usage_seconds_total{pod=~"compose-post-service-deployment-.*", container!="POD"}[5m])) by (pod) * 1000
+sum(rate(container_cpu_usage_seconds_total{pod=~"social-graph-service-deployment-.*", container!="POD"}[5m])) by (pod) * 1000
+
+# CPU throttling by service (indicates which services are resource-constrained)
+sum(rate(container_cpu_cfs_throttled_seconds_total{pod=~"user-service-deployment-.*", container!="POD"}[5m])) by (pod)
 ```
 
 **What it means:**
-- Latency broken down by API endpoint
-- Identifies which endpoints are slow
+- **k6 endpoint breakdown**: Actual latency per endpoint from load tests
+- **Service-level CPU**: High CPU on a specific service = that service may be a bottleneck
+- **Service-level throttling**: Throttling on a service = that service needs more resources
 
 **Why it's important:**
-- Some endpoints may be slower than others
-- Helps identify bottlenecks
-- Critical for optimizing specific operations
+- Some endpoints/services may be slower than others
+- Helps identify bottlenecks at the service level
+- Useful for optimizing specific services or scaling decisions
 
 **Normal ranges:**
-- Varies by endpoint complexity
-- Simple GET: <100ms
-- Complex POST: <500ms
+- Same as overall latency (from k6)
+- Some services may naturally use more CPU (e.g., database-heavy operations)
 
 **Abnormal ranges:**
-- Any endpoint > 1000ms consistently: Investigate
-
-**How HPA/VPA affects it:**
 - Same as overall latency
-- Some endpoints may benefit more from scaling
+- Services with high CPU/throttling may benefit more from scaling or VPA adjustment
 
 ---
 
@@ -420,61 +806,83 @@ sum(rate(http_request_duration_seconds_count{service="user-service"}[5m])) by (e
 
 ### 9. Requests Per Second (RPS)
 
+**⚠️ IMPORTANT: DeathStarBench services use Thrift RPC, not HTTP, so `http_requests_total` metrics are NOT available.**
+
+**Alternative: Use CPU/Network metrics as a proxy for request rate:**
+
 **PromQL Query:**
 ```promql
-# Total RPS for user-service
-sum(rate(http_requests_total{service="user-service"}[5m])) by (service)
+# Estimate RPS from CPU usage (proxy metric)
+# Higher CPU usage = more requests being processed
+sum(rate(container_cpu_usage_seconds_total{pod=~"user-service-deployment-.*", container!="POD"}[5m])) by (pod) * 100
 
-# RPS per pod
-sum(rate(http_requests_total{service="user-service"}[5m])) by (pod)
+# Network bytes received per second (proxy for request rate)
+sum(rate(container_network_receive_bytes_total{pod=~"user-service-deployment-.*"}[5m])) by (pod) / 1024
 
-# RPS by endpoint
-sum(rate(http_requests_total{service="user-service"}[5m])) by (endpoint)
+# Network bytes transmitted per second
+sum(rate(container_network_transmit_bytes_total{pod=~"user-service-deployment-.*"}[5m])) by (pod) / 1024
+
+# If HTTP metrics were available (for reference):
+# sum(rate(http_requests_total{service="user-service"}[5m])) by (service)
+# sum(rate(http_requests_total{service="user-service"}[5m])) by (pod)
 ```
 
 **What it means:**
-- Number of HTTP requests processed per second
-- Measures system capacity and load
+- **CPU-based proxy**: CPU usage correlates with request processing rate
+- **Network-based proxy**: Network traffic indicates request volume
+- **Note**: These are approximations, not exact request counts
 
 **Why it's important:**
-- Shows how much traffic the system is handling
-- Higher RPS = more load = may need scaling
-- RPS per pod shows load distribution
+- Shows relative load on the system
+- Higher CPU/network = more traffic = may need scaling
+- CPU per pod shows load distribution
 
 **Normal ranges:**
-- **Idle**: 0-10 RPS
-- **Normal load**: 10-100 RPS
-- **High load**: 100-1000 RPS
-- **Per pod**: 10-50 RPS (depends on pod resources)
+- **Idle**: CPU < 50m per pod, Network < 1 KB/s
+- **Normal load**: CPU 200-500m per pod, Network 10-100 KB/s
+- **High load**: CPU 500-1000m per pod, Network 100-1000 KB/s
+- **Per pod**: Monitor CPU usage as primary indicator
 
 **Abnormal ranges:**
-- **RPS per pod > 100**: Pods are overloaded, need scaling
-- **RPS = 0**: No traffic (check if service is down)
+- **CPU per pod > 800m consistently**: Pods are overloaded, need scaling
+- **CPU = 0**: No traffic (check if service is down)
 
 **How HPA affects it:**
-- More pods = more total RPS capacity
-- HPA scales up when RPS increases (indirectly via CPU/memory)
-- Latency-based HPA may scale based on RPS if configured
+- More pods = lower average CPU per pod (load distribution)
+- HPA scales up when CPU increases (direct metric)
+- Network traffic increases with more pods
 
 **How VPA affects it:**
-- Higher CPU/memory = pods can handle more RPS
-- VPA optimizing resources increases per-pod RPS capacity
+- Higher CPU/memory = pods can handle more requests
+- VPA optimizing resources increases per-pod capacity
 
 ---
 
 ### 10. Requests Per Second Per Pod
 
+**⚠️ IMPORTANT: DeathStarBench services use Thrift RPC, not HTTP, so `http_requests_total` metrics are NOT available.**
+
+**Alternative: Use CPU/Network metrics as a proxy:**
+
 **PromQL Query:**
 ```promql
-# Average RPS per pod
-avg(sum(rate(http_requests_total{service="user-service"}[5m])) by (pod))
+# Average CPU usage per pod (proxy for average RPS per pod)
+avg(sum(rate(container_cpu_usage_seconds_total{pod=~"user-service-deployment-.*", container!="POD"}[5m])) by (pod)) * 1000
 
-# RPS per pod (detailed)
-sum(rate(http_requests_total{service="user-service"}[5m])) by (pod)
+# CPU usage per pod (detailed - shows load distribution)
+sum(rate(container_cpu_usage_seconds_total{pod=~"user-service-deployment-.*", container!="POD"}[5m])) by (pod) * 1000
+
+# Network receive rate per pod (proxy for request rate)
+sum(rate(container_network_receive_bytes_total{pod=~"user-service-deployment-.*"}[5m])) by (pod) / 1024
+
+# If HTTP metrics were available (for reference):
+# avg(sum(rate(http_requests_total{service="user-service"}[5m])) by (pod))
+# sum(rate(http_requests_total{service="user-service"}[5m])) by (pod)
 ```
 
 **What it means:**
-- How many requests each pod is handling per second
+- **CPU per pod**: Shows relative request processing rate per pod
+- **Network per pod**: Shows data volume per pod (proxy for request volume)
 - Shows load distribution across pods
 
 **Why it's important:**
@@ -661,17 +1069,23 @@ count(kube_pod_status_phase{pod=~"user-service-deployment-.*", phase="Failed"})
 
 **PromQL Query:**
 ```promql
-# Pods that are ready
-sum(kube_pod_status_condition{pod=~"user-service-deployment-.*", condition="Ready", status="true"})
+# Pods that are ready (using kube_pod_container_status_ready)
+# Note: Filter by namespace and pod name pattern
+sum(kube_pod_container_status_ready{namespace="default", pod=~"user-service-deployment-.*", container!="POD"})
 
 # Pods that are not ready
-sum(kube_pod_status_condition{pod=~"user-service-deployment-.*", condition="Ready", status="false"})
+count(kube_pod_container_status_ready{namespace="default", pod=~"user-service-deployment-.*", container!="POD"}) 
+- sum(kube_pod_container_status_ready{namespace="default", pod=~"user-service-deployment-.*", container!="POD"})
 
 # Ready percentage
-sum(kube_pod_status_condition{pod=~"user-service-deployment-.*", condition="Ready", status="true"})
-/
-count(kube_pod_info{pod=~"user-service-deployment-.*"})
-* 100
+(sum(kube_pod_container_status_ready{namespace="default", pod=~"user-service-deployment-.*", container!="POD"}) 
+ / count(kube_pod_container_status_ready{namespace="default", pod=~"user-service-deployment-.*", container!="POD"})) * 100
+
+# Alternative: Use pod phase (Running = ready)
+count(kube_pod_status_phase{namespace="default", pod=~"user-service-deployment-.*", phase="Running"})
+
+# Alternative: Use deployment replica metrics (if available)
+# kube_deployment_status_replicas_available{namespace="default", deployment="user-service-deployment"}
 ```
 
 **What it means:**
@@ -708,16 +1122,21 @@ count(kube_pod_info{pod=~"user-service-deployment-.*"})
 
 **PromQL Query:**
 ```promql
-# HPA desired replica count
-kube_horizontalpodautoscaler_status_desired_replicas{horizontalpodautoscaler="user-service-hpa"}
+# ⚠️ NOTE: kube_horizontalpodautoscaler_status_* metrics are NOT available in GKE-managed kube-state-metrics
+# Alternative: Use pod count metrics to track scaling
 
-# HPA current replicas
-kube_horizontalpodautoscaler_status_current_replicas{horizontalpodautoscaler="user-service-hpa"}
+# Count of running pods (proxy for current replicas)
+count(kube_pod_status_phase{namespace="default", pod=~"user-service-deployment-.*", phase="Running"})
 
-# Difference (scaling gap)
-kube_horizontalpodautoscaler_status_desired_replicas{horizontalpodautoscaler="user-service-hpa"}
--
-kube_horizontalpodautoscaler_status_current_replicas{horizontalpodautoscaler="user-service-hpa"}
+# Count of ready pods
+sum(kube_pod_container_status_ready{namespace="default", pod=~"user-service-deployment-.*", container!="POD"})
+
+# If deployment metrics are available:
+# kube_deployment_spec_replicas{namespace="default", deployment="user-service-deployment"}
+# kube_deployment_status_replicas_available{namespace="default", deployment="user-service-deployment"}
+
+# To get HPA desired replicas, use kubectl instead:
+# kubectl get hpa user-service-hpa -n default -o jsonpath='{.status.desiredReplicas}'
 ```
 
 **What it means:**
@@ -876,24 +1295,31 @@ vpa_target_recommendation{resource="memory", vpa="user-service-vpa"}
 
 ### 20. HTTP Error Rate
 
+**⚠️ IMPORTANT: DeathStarBench services use Thrift RPC, not HTTP, so HTTP error metrics are NOT available.**
+
+**Alternative: Monitor pod restarts and container failures as error indicators:**
+
 **PromQL Query:**
 ```promql
-# Error rate (5xx errors)
-sum(rate(http_requests_total{service="user-service", status_code=~"5.."}[5m])) by (pod)
+# Pod restart count (indicates errors/crashes)
+sum(kube_pod_container_status_restarts_total{pod=~"user-service-deployment-.*"}) by (pod)
 
-# Error percentage
-sum(rate(http_requests_total{service="user-service", status_code=~"5.."}[5m])) by (pod)
-/
-sum(rate(http_requests_total{service="user-service"}[5m])) by (pod)
-* 100
+# Container state (0=Running, 1=Waiting, 2=Terminated)
+kube_pod_container_status_waiting_reason{pod=~"user-service-deployment-.*"}
 
-# 4xx errors (client errors)
-sum(rate(http_requests_total{service="user-service", status_code=~"4.."}[5m])) by (pod)
+# Container ready state (0=NotReady, 1=Ready)
+kube_pod_container_status_ready{pod=~"user-service-deployment-.*"}
+
+# If HTTP metrics were available (for reference):
+# sum(rate(http_requests_total{service="user-service", status_code=~"5.."}[5m])) by (pod)
+# sum(rate(http_requests_total{service="user-service", status_code=~"4.."}[5m])) by (pod)
 ```
 
 **What it means:**
-- Rate of HTTP errors (4xx = client errors, 5xx = server errors)
-- Error percentage = errors / total requests
+- **Pod restarts**: High restart count indicates errors/crashes
+- **Container state**: Waiting/Terminated states indicate problems
+- **Container ready**: Not ready = service unavailable (error condition)
+- **Note**: These are indirect error indicators, not direct HTTP error metrics
 
 **Why it's important:**
 - High error rate = system is failing
@@ -963,13 +1389,19 @@ rate(kube_pod_container_status_restarts_total{pod=~"user-service-deployment-.*"}
 ### Essential Metrics for Your Experiments
 
 **Performance (Latency Target: <500ms)**
-1. Average latency: `histogram_quantile(0.50, ...)`
-2. p95 latency: `histogram_quantile(0.95, ...)`
-3. p99 latency: `histogram_quantile(0.99, ...)`
+1. **Latency from k6 tests** (primary source):
+   ```bash
+   jq '.metrics.http_req_duration.values.p95' k6-results/*.json
+   jq '.metrics.http_req_duration.values.p99' k6-results/*.json
+   ```
+2. **CPU usage** (proxy indicator): `sum(rate(container_cpu_usage_seconds_total{pod=~"user-service-deployment-.*"}[5m])) by (pod) * 1000`
+3. **CPU throttling** (latency indicator): `sum(rate(container_cpu_cfs_throttled_seconds_total{pod=~"user-service-deployment-.*"}[5m])) by (pod)`
+   **Note**: HTTP latency histograms not available (services use Thrift)
 
 **Throughput**
-4. Requests per second: `sum(rate(http_requests_total{...}[5m]))`
-5. RPS per pod: `sum(rate(http_requests_total{...}[5m])) by (pod)`
+4. Requests per second (proxy): `sum(rate(container_cpu_usage_seconds_total{pod=~"user-service-deployment-.*"}[5m])) * 1000`
+5. RPS per pod (proxy): `sum(rate(container_cpu_usage_seconds_total{pod=~"user-service-deployment-.*"}[5m])) by (pod) * 1000`
+   **Note**: HTTP metrics not available (services use Thrift). CPU usage is a proxy for request rate.
 
 **Resource Utilization (HPA Metrics)**
 6. CPU usage %: `rate(container_cpu_usage_seconds_total{...}[5m]) / container_spec_cpu_request{...} * 100`
@@ -981,7 +1413,8 @@ rate(kube_pod_container_status_restarts_total{pod=~"user-service-deployment-.*"}
 10. HPA current replicas: `kube_horizontalpodautoscaler_status_current_replicas{...}`
 
 **Health**
-11. Error rate: `sum(rate(http_requests_total{status_code=~"5.."}[5m])) / sum(rate(http_requests_total{...}[5m])) * 100`
+11. Error indicators: `sum(kube_pod_container_status_restarts_total{pod=~"user-service-deployment-.*"}) by (pod)`
+   **Note**: HTTP error metrics not available (services use Thrift). Use pod restarts as error indicator.
 12. Pod ready status: `sum(kube_pod_status_condition{condition="Ready", status="true"})`
 
 **VPA**
@@ -1048,7 +1481,9 @@ rate(kube_pod_container_status_restarts_total{pod=~"user-service-deployment-.*"}
 **Common variations:**
 - `container_cpu_usage_seconds_total` vs `cpu_usage_seconds_total`
 - `http_request_duration_seconds` vs `http_server_request_duration_seconds`
-- `http_requests_total` vs `http_requests_received_total`
+- **⚠️ IMPORTANT**: DeathStarBench services use Thrift RPC, not HTTP, so `http_requests_total` metrics are NOT available
+- Use `container_cpu_usage_seconds_total` and `container_network_receive_bytes_total` as proxies for request rate
+- Use `kube_pod_container_status_restarts_total` as an error indicator
 
 **To find your actual metric names:**
 ```bash
@@ -1091,9 +1526,17 @@ Use these metrics to:
 ### Recommended Dashboard Panels
 
 #### Panel 1: Latency (p95/p99)
-- **Query:** (from k6 JSON, or Prometheus if exported)
+- **Query:** Extract from k6 JSON results (HTTP latency metrics not available in Prometheus)
+  ```bash
+  jq '.metrics.http_req_duration.values.p95' k6-results/*.json
+  jq '.metrics.http_req_duration.values.p99' k6-results/*.json
+  ```
+- **Alternative Prometheus Query:** CPU usage as latency proxy
+  ```promql
+  sum(rate(container_cpu_usage_seconds_total{pod=~"user-service-deployment-.*"}[5m])) by (pod) * 1000
+  ```
 - **Visualization:** Time series
-- **Y-axis:** Milliseconds
+- **Y-axis:** Milliseconds (k6) or Millicores (CPU proxy)
 
 #### Panel 2: Throughput
 - **Query:** `rate(k6_http_reqs_total[5m])` or from k6 JSON
@@ -1131,5 +1574,16 @@ Grafana has many pre-built dashboards:
    - Node-level metrics
 
 3. **cAdvisor** (ID: 14282)
-   - Container metrics
+   - Container metricsJ
 
+- `unique-id-service`
+- `social-graph-service`
+- `nginx-thrift`
+- `compose-post-service`
+- `home-timeline-service`
+- `media-service`
+- `post-storage-service`
+- `text-service`
+- `url-shorten-service`
+- `user-mention-service`
+- `user-timeline-service`

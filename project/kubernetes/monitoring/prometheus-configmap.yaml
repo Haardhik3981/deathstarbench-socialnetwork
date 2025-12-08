@@ -112,11 +112,10 @@ data:
             action: keep
             regex: true
           
-          # Skip DeathStarBench microservices - they use Thrift, not HTTP metrics
-          # These services don't expose HTTP /metrics endpoints
-          - source_labels: [__meta_kubernetes_pod_label_app]
-            action: drop
-            regex: 'user-service|home-timeline-service|url-shorten-service|user-timeline-service|compose-post-service|post-storage-service|social-graph-service|text-service|unique-id-service|user-mention-service|media-service'
+          # NOTE: DeathStarBench microservices use Thrift, not HTTP metrics
+          # They may have prometheus.io/scrape annotations but won't expose HTTP metrics
+          # Container-level metrics (CPU, memory) are still available via cAdvisor
+          # We keep them here in case they add metrics endpoints in the future
           
           # Build address from pod IP and port annotation
           # Source labels are joined with ';' by default, so we get "IP;PORT"
@@ -218,4 +217,39 @@ data:
             regex: (.+)
             target_label: __metrics_path__
             replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+      
+      # Scrape kube-state-metrics - provides Kubernetes object state metrics
+      # This gives us metrics like kube_pod_status_condition, kube_horizontalpodautoscaler_status_*, etc.
+      # GKE-managed kube-state-metrics runs in gke-managed-cim namespace
+      # Using kubernetes service discovery to find the pod dynamically
+      - job_name: 'kube-state-metrics'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - gke-managed-cim
+        relabel_configs:
+          # Only scrape pods with the kube-state-metrics label
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            action: keep
+            regex: gke-managed-kube-state-metrics
+          # Only keep pods with the k8s-objects port
+          - source_labels: [__meta_kubernetes_pod_container_port_name]
+            action: keep
+            regex: k8s-objects
+          # Build address: pod IP + port 8080
+          - source_labels: [__meta_kubernetes_pod_ip]
+            action: replace
+            target_label: __address__
+            replacement: ${1}:8080
+          # Set metrics path
+          - target_label: __metrics_path__
+            replacement: /metrics
+          # Add useful labels
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
 

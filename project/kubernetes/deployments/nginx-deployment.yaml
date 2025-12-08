@@ -72,8 +72,8 @@ spec:
             cpu: 100m      # 0.1 CPU cores
             memory: 128Mi  # 128 megabytes
           limits:
-            cpu: 500m      # 0.5 CPU cores
-            memory: 256Mi  # 256 megabytes
+            cpu: 1500m      # 0.5 CPU cores
+            memory: 512Mi  # 256 megabytes
         
         # Health check - Kubernetes uses this to determine if the pod is healthy
         livenessProbe:

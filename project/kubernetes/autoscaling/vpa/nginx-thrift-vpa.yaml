@@ -45,22 +45,23 @@ spec:
   
   # The update policy for the VPA.
   updatePolicy:
-    # "Off" means VPA will only provide recommendations, not automatically apply them.
+    # "Off" means VPA will only provide recommendations without automatically applying them.
+    # Use kubectl describe vpa to view recommendations, then manually apply if desired.
     updateMode: "Off"
   
   # Resource policy - constraints on recommendations
   resourcePolicy:
     containerPolicies:
     - containerName: nginx-thrift
-      # Minimum resources VPA can recommend
+      # Minimum resources VPA can recommend (matches current deployment requests)
       minAllowed:
-        cpu: 100m      # Never recommend less than 0.1 CPU
-        memory: 128Mi  # Never recommend less than 128 MB
+        cpu: 200m      # Matches current deployment request
+        memory: 128Mi  # Matches current deployment request
       
-      # Maximum resources VPA can recommend
+      # Maximum resources VPA can recommend (matches current deployment limits)
       maxAllowed:
-        cpu: 2000m     # Never recommend more than 2 CPUs
-        memory: 2Gi    # Never recommend more than 2 GB
+        cpu: 1000m     # Matches current deployment limit
+        memory: 512Mi  # Matches current deployment limit
       
       # Control which resource types VPA can modify
       controlledResources: ["cpu", "memory"]
