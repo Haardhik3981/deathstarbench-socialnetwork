@@ -7,13 +7,20 @@ This project implements a complete microservice deployment pipeline for the Deat
 ## Project Structure
 
 ```
-project/
+gke_deployment/
 ├── README.md                    # This file - project overview
-├── DEPLOYMENT_GUIDE.md          # Step-by-step deployment instructions
-├── CI_CD_DOCUMENTATION.md       # GitHub Actions CI/CD pipeline documentation
-├── TESTERS_MANUAL.md            # Comprehensive testing guide
-├── VPA_VS_HPA_COMPARISON.md     # Comparison of autoscaling approaches
-├── project_description.txt      # Original project requirements
+│
+├── docs/                        # Documentation files
+│   ├── DEPLOYMENT_GUIDE.md      # Step-by-step deployment instructions
+│   ├── CI_CD_DOCUMENTATION.md   # GitHub Actions CI/CD pipeline documentation
+│   └── TESTERS_MANUAL.md        # Comprehensive testing guide
+│
+├── scripts/                     # Helper scripts
+│   ├── deploy-everything.sh     # Main deployment script
+│   ├── cleanup-everything.sh    # Cleanup script
+│   ├── verify-deployment.sh      # Deployment verification
+│   ├── run-test-with-metrics.sh # Run k6 tests with metrics
+│   └── ...                      # Other utility scripts
 │
 ├── docker/                      # Dockerfiles for containerization
 │   ├── nginx/                   # Nginx reverse proxy
@@ -30,13 +37,12 @@ project/
 │   └── configmaps/              # Configuration files as ConfigMaps
 │
 ├── k6-tests/                    # Load testing scripts
-│   └── README.md                # Test documentation
+│   ├── README.md                # Test documentation
+│   ├── constant-load.js         # Constant load test
+│   ├── stress-test.js           # Stress test
+│   └── ...                      # Other test scripts
 │
-├── scripts/                     # Helper scripts
-│   └── README.md                # Script documentation
-│
-├── k6-results/                  # Test results (generated)
-└── docs/                        # Additional documentation
+└── k6-results/                  # Test results (generated, gitignored)
 ```
 
 ## Key Components
@@ -79,26 +85,23 @@ project/
 
 ### Deployment
 1. **Set up cluster access**: `kubectl config use-context <your-cluster>`
-2. **Deploy services**: `./deploy-everything.sh` or see `DEPLOYMENT_GUIDE.md`
+2. **Deploy services**: `./scripts/deploy-everything.sh` or see `docs/DEPLOYMENT_GUIDE.md`
 3. **Set up monitoring**: Deploy Prometheus/Grafana from `kubernetes/monitoring/`
 4. **Run tests**: `./scripts/run-test-with-metrics.sh <test-name>`
 
 ### Testing
 1. **Reset databases**: `./scripts/reset-all-databases.sh`
-2. **Verify system**: `./scripts/verify-system-ready.sh`
+2. **Verify system**: `./scripts/verify-deployment.sh`
 3. **Port-forward**: `kubectl port-forward svc/nginx-thrift-service 8080:8080`
-4. **Run test**: `./scripts/run-test-with-metrics.sh sweet-test`
+4. **Run test**: `./scripts/run-test-with-metrics.sh <test-name>`
 
 ## Documentation
 
-- **DEPLOYMENT_GUIDE.md**: Complete deployment instructions
-- **TESTERS_MANUAL.md**: Testing workflow and best practices
-- **CI_CD_DOCUMENTATION.md**: GitHub Actions pipeline details
-- **VPA_VS_HPA_COMPARISON.md**: Autoscaling strategy comparison
+- **docs/DEPLOYMENT_GUIDE.md**: Complete deployment instructions
+- **docs/TESTERS_MANUAL.md**: Testing workflow and best practices
+- **docs/CI_CD_DOCUMENTATION.md**: GitHub Actions pipeline details
 - **kubernetes/autoscaling/README.md**: Autoscaling configuration guide
-- **kubernetes/monitoring/METRICS_TRACKING_GUIDE.md**: Prometheus queries
 - **k6-tests/README.md**: Load test documentation
-- **scripts/README.md**: Script reference
 
 ## CI/CD Pipeline
 
@@ -109,11 +112,12 @@ Automated validation and deployment via GitHub Actions:
 - k6 test validation
 - Optional automated deployment
 
-See `CI_CD_DOCUMENTATION.md` for details.
+See `docs/CI_CD_DOCUMENTATION.md` for details.
 
 ## Next Steps
 
-1. Read `DEPLOYMENT_GUIDE.md` for deployment instructions
-2. Review `TESTERS_MANUAL.md` for testing workflow
+1. Read `docs/DEPLOYMENT_GUIDE.md` for deployment instructions
+2. Review `docs/TESTERS_MANUAL.md` for testing workflow
 3. Check `kubernetes/autoscaling/README.md` for autoscaling setup
 4. Explore `k6-tests/README.md` for available load tests
+5. Use scripts in `scripts/` directory for deployment and testing tasks
