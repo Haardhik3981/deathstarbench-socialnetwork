@@ -377,6 +377,14 @@ http {
           client.GetFollowee();
       ';
     }
+    # Prometheus metrics endpoint for nginx statistics
+    location /nginx_status {
+      stub_status on;
+      access_log off;
+      allow 127.0.0.1;  # Only allow access from localhost (metrics exporter)
+      deny all;
+    }
+
     location / {
       if ($request_method = 'OPTIONS') {
         add_header 'Access-Control-Allow-Origin' '*';

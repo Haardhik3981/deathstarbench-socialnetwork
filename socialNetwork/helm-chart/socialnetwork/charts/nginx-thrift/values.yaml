@@ -13,6 +13,14 @@ container:
   env:
   - name: fqdn_suffix
     value: ".{{ .Release.Namespace }}.svc.cluster.local"
+  # Resource limits for nginx-thrift (API gateway needs more resources)
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
   volumeMounts:
     - name: lua-scripts
       mountPath: /usr/local/openresty/nginx/lua-scripts

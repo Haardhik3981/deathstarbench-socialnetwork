@@ -15,6 +15,16 @@ spec:
       labels:
         service: {{ .Values.name }}
         app: {{ .Values.name }}
+      {{- if $.Values.global.prometheus.enabled }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: {{ $.Values.global.prometheus.path | quote }}
+        prometheus.io/port: "9091"
+        prometheus.io/scheme: {{ $.Values.global.prometheus.scheme | default "http" | quote }}
+        {{- if $.Values.global.prometheus.interval }}
+        prometheus.io/interval: {{ $.Values.global.prometheus.interval | quote }}
+        {{- end }}
+      {{- end }}
     spec: 
       containers:
       {{- with .Values.container }}
@@ -62,6 +72,39 @@ spec:
         {{- end }}
         {{- end }}
       {{- end }}
+      {{- if $.Values.global.prometheus.enabled }}
+      # Nginx Prometheus Exporter sidecar
+      # Scrapes nginx stub_status and exposes as Prometheus metrics on port 9091
+      - name: nginx-prometheus-exporter
+        image: nginx/nginx-prometheus-exporter:1.1.0
+        args:
+          - "-nginx.scrape-uri=http://localhost:8080/nginx_status"
+          - "-web.listen-address=:9091"
+          - "-web.telemetry-path=/metrics"
+        ports:
+        - containerPort: 9091
+          name: metrics
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 50m
+            memory: 64Mi
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 9091
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 9091
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      {{- end }}
 
       initContainers:
       {{- with .Values.initContainer }}
@@ -101,14 +144,22 @@ spec:
         {{- end }}
       {{- end -}}
 
-      {{- if $.Values.configMaps }}
+      {{- if or $.Values.configMaps $.Values.global.prometheus.enabled }}
       volumes:
+      {{- if $.Values.configMaps }}
       - name: {{ $.Values.name }}-config
         configMap:
           name: {{ $.Values.name }}
       {{- range $.Values.volumes }}
       - name: {{ .name }}
         emptyDir: {}
+      {{- end }}
+      {{- end }}
+      {{- if $.Values.global.prometheus.enabled }}
+      - name: metrics-script
+        configMap:
+          name: metrics-exporter-script
+          defaultMode: 0755
       {{- end }}
       {{- end }}
       

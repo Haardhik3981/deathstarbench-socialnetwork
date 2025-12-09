@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nginx-thrift-ingress
+  namespace: cse239fall2025
+  labels:
+    app: nginx-thrift
+spec:
+  ingressClassName: haproxy
+  rules:
+  - host: socialnetwork-haardhik.nrp-nautilus.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: nginx-thrift
+            port:
+              number: 8080
+  tls:
+  - hosts:
+    - socialnetwork-haardhik.nrp-nautilus.io
+
+

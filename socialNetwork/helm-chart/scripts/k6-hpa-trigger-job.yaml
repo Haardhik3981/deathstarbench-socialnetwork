@@ -1,0 +1,160 @@
+# =============================================================================
+# K6 HPA Trigger Test Job
+# =============================================================================
+# Purpose: Run heavy load test to trigger HPA scaling on nginx-thrift
+# 
+# Usage:
+#   1. First, update the ConfigMap with the test script:
+#      kubectl create configmap k6-hpa-trigger-script \
+#        --from-file=k6-hpa-trigger-test.js \
+#        -n cse239fall2025 --dry-run=client -o yaml | kubectl apply -f -
+#
+#   2. Then run this job:
+#      kubectl apply -f k6-hpa-trigger-job.yaml -n cse239fall2025
+#
+#   3. Watch the HPA:
+#      kubectl get hpa nginx-thrift -n cse239fall2025 -w
+#
+#   4. Watch the logs:
+#      kubectl logs -f job/k6-hpa-trigger -n cse239fall2025
+#
+# =============================================================================
+
+---
+# ConfigMap containing the test script
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-hpa-trigger-script
+  namespace: cse239fall2025
+data:
+  k6-hpa-trigger-test.js: |
+    /**
+     * K6 HPA Trigger Test - Inline Version
+     * Heavy load to trigger nginx-thrift HPA scaling
+     */
+    
+    import http from 'k6/http';
+    import { check, sleep } from 'k6';
+    import { Rate, Counter } from 'k6/metrics';
+    
+    const errorRate = new Rate('errors');
+    const requestsCompleted = new Counter('requests_completed');
+    
+    // Target nginx-thrift service inside cluster
+    const BASE_URL = __ENV.BASE_URL || 'http://nginx-thrift:8080';
+    
+    export const options = {
+      scenarios: {
+        heavy_load: {
+          executor: 'ramping-vus',
+          startVUs: 0,
+          stages: [
+            { duration: '30s', target: 100 },
+            { duration: '1m', target: 300 },
+            { duration: '2m', target: 500 },
+            { duration: '3m', target: 700 },
+            { duration: '5m', target: 1000 },
+            { duration: '3m', target: 700 },
+            { duration: '2m', target: 500 },
+            { duration: '1m', target: 0 },
+          ],
+        },
+      },
+      thresholds: {
+        http_req_duration: ['p(95)<10000'],
+        errors: ['rate<0.9'],
+      },
+    };
+    
+    function randomUserId() {
+      return Math.floor(Math.random() * 962) + 1;
+    }
+    
+    function randomText(len) {
+      const c = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      let r = '';
+      for (let i = 0; i < len; i++) r += c.charAt(Math.floor(Math.random() * c.length));
+      return r;
+    }
+    
+    export default function () {
+      const userId = randomUserId();
+      const s = Math.random();
+      let res;
+      
+      if (s < 0.4) {
+        res = http.get(`${BASE_URL}/wrk2-api/home-timeline/read?user_id=${userId}&start=0&stop=20`, { timeout: '15s' });
+      } else if (s < 0.7) {
+        res = http.get(`${BASE_URL}/wrk2-api/user-timeline/read?user_id=${userId}&start=0&stop=20`, { timeout: '15s' });
+      } else if (s < 0.9) {
+        const txt = randomText(280);
+        res = http.post(`${BASE_URL}/wrk2-api/post/compose`, 
+          `user_id=${userId}&username=user_${userId}&text=${encodeURIComponent(txt)}&media_ids=[]&media_types=[]&post_type=0`,
+          { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: '15s' });
+      } else {
+        res = http.post(`${BASE_URL}/wrk2-api/user/follow`,
+          `user_id=${userId}&followee_id=${randomUserId()}`,
+          { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: '15s' });
+      }
+      
+      const ok = check(res, { 'status 200': (r) => r.status === 200 });
+      if (ok) requestsCompleted.add(1);
+      errorRate.add(!ok);
+      
+      sleep(0.1);
+    }
+    
+    export function handleSummary(data) {
+      const m = data.metrics;
+      console.log('\n========== HPA TRIGGER TEST COMPLETE ==========');
+      console.log(`Total Requests: ${m.http_reqs?.values?.count || 0}`);
+      console.log(`Error Rate: ${((m.errors?.values?.rate || 0) * 100).toFixed(2)}%`);
+      console.log(`Avg Response: ${(m.http_req_duration?.values?.avg || 0).toFixed(2)}ms`);
+      console.log(`p95 Response: ${(m.http_req_duration?.values['p(95)'] || 0).toFixed(2)}ms`);
+      console.log(`Throughput: ${(m.http_reqs?.values?.rate || 0).toFixed(2)} req/s`);
+      console.log('================================================\n');
+      console.log('Check HPA status: kubectl get hpa nginx-thrift -n cse239fall2025');
+      return {};
+    }
+
+---
+# Job to run the K6 test
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6-hpa-trigger
+  namespace: cse239fall2025
+  labels:
+    app: k6-hpa-trigger
+    purpose: hpa-testing
+spec:
+  ttlSecondsAfterFinished: 3600  # Auto-cleanup after 1 hour
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: k6-hpa-trigger
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: k6
+          image: grafana/k6:latest
+          command: ["k6", "run", "/scripts/k6-hpa-trigger-test.js"]
+          env:
+            - name: BASE_URL
+              value: "http://nginx-thrift:8080"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+          volumeMounts:
+            - name: k6-script
+              mountPath: /scripts
+      volumes:
+        - name: k6-script
+          configMap:
+            name: k6-hpa-trigger-script

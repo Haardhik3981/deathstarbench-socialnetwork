@@ -1,4 +1,17 @@
 global: 
+  prometheus:
+    enabled: false
+    path: /metrics
+    port: 9090
+    scheme: http
+    interval: 15s
+    serviceMonitor:
+      enabled: false
+      labels: {}
+      honorLabels: false
+      scrapeTimeout: ""
+      metricRelabelings: []
+      relabelings: []
   hpa:
     enabled: false
     minReplicas: 1

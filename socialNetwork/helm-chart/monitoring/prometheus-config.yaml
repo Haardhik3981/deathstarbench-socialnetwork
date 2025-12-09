@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: cse239fall2025
+  labels:
+    app: prometheus
+data:
+  prometheus.yml: |-
+    global:
+      scrape_interval: 10s
+      scrape_timeout: 10s
+      evaluation_interval: 10s
+
+    scrape_configs:
+      # -------------------------------------------------------
+      # 1) Prometheus self-monitoring
+      # -------------------------------------------------------
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
+      # -------------------------------------------------------
+      # 2) Nginx-thrift Frontend - HTTP request metrics
+      #    Exports: nginx_http_requests_total, nginx_connections_active, etc.
+      # -------------------------------------------------------
+      - job_name: 'nginx-frontend'
+        static_configs:
+          - targets: ['nginx-thrift.cse239fall2025.svc.cluster.local:9091']
+            labels:
+              service: 'nginx-thrift'
+              namespace: 'cse239fall2025'
+        metrics_path: /metrics
+        scrape_interval: 10s
+
+      # -------------------------------------------------------
+      # 3) Pushgateway - for kubectl top metrics and k6 results
+      #    Exports: ha_cpu_usage_millicores, ha_memory_usage_bytes
+      #    honor_labels: true preserves pod/container labels from pushed metrics
+      # -------------------------------------------------------
+      - job_name: 'pushgateway'
+        honor_labels: true
+        static_configs:
+          - targets: ['pushgateway.cse239fall2025.svc.cluster.local:9091']
+            labels:
+              namespace: 'cse239fall2025'
+        scrape_interval: 10s
