@@ -1,0 +1,21 @@
+# Kubernetes Service for Social Graph Service
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: social-graph-service
+  namespace: default
+  labels:
+    app: social-graph-service
+    component: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: social-graph-service
+    component: backend
+  ports:
+  - name: thrift
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+

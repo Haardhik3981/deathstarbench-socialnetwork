@@ -1,0 +1,173 @@
+# Kubernetes Services for All DeathStarBench Microservices
+#
+# WHAT THIS DOES:
+# Creates ClusterIP services for all microservices. These services provide
+# stable DNS names that other services can use to communicate.
+
+# Compose Post Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: compose-post-service
+  namespace: default
+  labels:
+    app: compose-post-service
+    component: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: compose-post-service
+    component: backend
+  ports:
+  - name: thrift
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+
+---
+# Post Storage Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: post-storage-service
+  namespace: default
+  labels:
+    app: post-storage-service
+    component: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: post-storage-service
+    component: backend
+  ports:
+  - name: thrift
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+
+---
+# Home Timeline Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: home-timeline-service
+  namespace: default
+  labels:
+    app: home-timeline-service
+    component: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: home-timeline-service
+    component: backend
+  ports:
+  - name: thrift
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+
+---
+# URL Shorten Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: url-shorten-service
+  namespace: default
+  labels:
+    app: url-shorten-service
+    component: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: url-shorten-service
+    component: backend
+  ports:
+  - name: thrift
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+
+---
+# Media Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: media-service
+  namespace: default
+  labels:
+    app: media-service
+    component: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: media-service
+    component: backend
+  ports:
+  - name: thrift
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+
+---
+# Text Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: text-service
+  namespace: default
+  labels:
+    app: text-service
+    component: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: text-service
+    component: backend
+  ports:
+  - name: thrift
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+
+---
+# Unique ID Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: unique-id-service
+  namespace: default
+  labels:
+    app: unique-id-service
+    component: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: unique-id-service
+    component: backend
+  ports:
+  - name: thrift
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+
+---
+# User Mention Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-mention-service
+  namespace: default
+  labels:
+    app: user-mention-service
+    component: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: user-mention-service
+    component: backend
+  ports:
+  - name: thrift
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+

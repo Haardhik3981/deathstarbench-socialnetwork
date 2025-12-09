@@ -1,0 +1,27 @@
+# Kubernetes Service for Nginx-Thrift Gateway (DeathStarBench)
+#
+# WHAT THIS DOES:
+# Provides a stable network endpoint for the nginx-thrift gateway.
+# This is the entry point for all HTTP API requests to the social network.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-thrift-service
+  namespace: default
+  labels:
+    app: nginx-thrift
+    component: gateway
+spec:
+  type: LoadBalancer  # Use NodePort for Nautilus, LoadBalancer for GKE
+  selector:
+    app: nginx-thrift
+    component: gateway
+  ports:
+  - name: http
+    port: 8080        # Port the service listens on
+    targetPort: 8080  # Port on the pods to forward to
+    protocol: TCP
+    # nodePort: 30080  # Uncomment for NodePort type (30000-32767 range)
+
+

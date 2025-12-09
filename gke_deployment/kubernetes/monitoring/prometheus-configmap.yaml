@@ -1,0 +1,255 @@
+# Prometheus Configuration as ConfigMap
+#
+# WHAT THIS DOES:
+# Prometheus is a time-series database that collects metrics from your applications.
+# This ConfigMap contains the Prometheus configuration file that tells Prometheus:
+# - Which targets (services) to scrape metrics from
+# - How often to scrape (scrape interval)
+# - What metrics to collect
+# - How to label and organize metrics
+#
+# IMPORTANT FIXES APPLIED:
+# - Pod scraping: Correctly combines pod IP and port annotation (fixes "9090:9090" errors)
+# - Node scraping: Uses API server proxy to avoid RBAC permission issues (fixes 403 errors)
+# - DeathStarBench services: Automatically skipped (they use Thrift, not HTTP metrics)
+#   Container-level metrics for these services are still available via cAdvisor
+#
+# KEY CONCEPTS:
+# - scrape_configs: Defines which endpoints Prometheus should collect metrics from
+# - scrape_interval: How often to collect metrics (default: 15s)
+# - static_configs: Static list of targets to scrape
+# - kubernetes_sd_configs: Automatically discover targets in Kubernetes
+# - relabel_configs: Modify labels on metrics for better organization
+#
+# WHY WE NEED IT:
+# Monitoring is essential for understanding system performance, identifying bottlenecks,
+# and making informed scaling decisions. Prometheus collects metrics that Grafana
+# visualizes in dashboards.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring  # Create a separate namespace for monitoring
+  labels:
+    app: prometheus
+data:
+  # Prometheus configuration file
+  prometheus.yml: |
+    # Global configuration - applies to all scrape jobs
+    global:
+      # How often to scrape targets
+      scrape_interval: 15s
+      
+      # How long to wait for a scrape before timing out
+      scrape_timeout: 10s
+      
+      # How often to evaluate rules (alerting rules, recording rules)
+      evaluation_interval: 15s
+      
+      # External labels - added to all time series
+      external_labels:
+        cluster: 'social-network'
+        environment: 'production'
+    
+    # Alerting configuration (if using Alertmanager)
+    # alerting:
+    #   alertmanagers:
+    #   - static_configs:
+    #     - targets: ['alertmanager:9093']
+    
+    # Scrape configurations - define what to monitor
+    scrape_configs:
+      # Scrape Prometheus itself
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+      
+      # Scrape Kubernetes API server metrics
+      - job_name: 'kubernetes-apiservers'
+        kubernetes_sd_configs:
+          - role: endpoints
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: default;kubernetes;https
+      
+      # Scrape Kubernetes nodes (kubelet metrics via API server proxy)
+      # Using the proxy endpoint avoids direct kubelet access permissions
+      - job_name: 'kubernetes-nodes'
+        kubernetes_sd_configs:
+          - role: node
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          # Replace the address to use the API server proxy
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          # Replace the metrics path to use the node proxy API
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/${1}/proxy/metrics
+          # Add node labels
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+      
+      # Scrape Kubernetes pods - automatically discover all pods
+      # This is powerful: Prometheus will automatically find and scrape any pod
+      # that has the right annotations AND exposes actual HTTP metrics endpoints
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          # Only scrape pods that have prometheus.io/scrape annotation set to true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          
+          # NOTE: DeathStarBench microservices use Thrift, not HTTP metrics
+          # They may have prometheus.io/scrape annotations but won't expose HTTP metrics
+          # Container-level metrics (CPU, memory) are still available via cAdvisor
+          # We keep them here in case they add metrics endpoints in the future
+          
+          # Build address from pod IP and port annotation
+          # Source labels are joined with ';' by default, so we get "IP;PORT"
+          # We extract both parts and combine as "IP:PORT"
+          - source_labels: [__meta_kubernetes_pod_ip, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: '^([^;]+);(.+)$'
+            replacement: '${1}:${2}'
+            target_label: __address__
+          
+          # Add pod name as a label
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          
+          # Add namespace as a label
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          
+          # Add pod name as a label
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+          
+          # Set the metrics path if specified, default to /metrics
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+            replacement: ${1}
+      
+      # Scrape our microservices directly
+      # These are static configurations for services we know about
+      - job_name: 'user-service'
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names:
+                - default
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: user-service
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: http
+      
+      - job_name: 'social-graph-service'
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names:
+                - default
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: social-graph-service
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: http
+      
+      - job_name: 'user-timeline-service'
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names:
+                - default
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: user-timeline-service
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: http
+      
+      # Scrape Nginx metrics (if nginx-prometheus-exporter is installed)
+      - job_name: 'nginx'
+        kubernetes_sd_configs:
+          - role: endpoints
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: nginx-service
+      
+      # Scrape cAdvisor (container metrics) - provides CPU, memory, network stats
+      - job_name: 'cadvisor'
+        kubernetes_sd_configs:
+          - role: node
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+      
+      # Scrape kube-state-metrics - provides Kubernetes object state metrics
+      # This gives us metrics like kube_pod_status_condition, kube_horizontalpodautoscaler_status_*, etc.
+      # GKE-managed kube-state-metrics runs in gke-managed-cim namespace
+      # Using kubernetes service discovery to find the pod dynamically
+      - job_name: 'kube-state-metrics'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - gke-managed-cim
+        relabel_configs:
+          # Only scrape pods with the kube-state-metrics label
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            action: keep
+            regex: gke-managed-kube-state-metrics
+          # Only keep pods with the k8s-objects port
+          - source_labels: [__meta_kubernetes_pod_container_port_name]
+            action: keep
+            regex: k8s-objects
+          # Build address: pod IP + port 8080
+          - source_labels: [__meta_kubernetes_pod_ip]
+            action: replace
+            target_label: __address__
+            replacement: ${1}:8080
+          # Set metrics path
+          - target_label: __metrics_path__
+            replacement: /metrics
+          # Add useful labels
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+

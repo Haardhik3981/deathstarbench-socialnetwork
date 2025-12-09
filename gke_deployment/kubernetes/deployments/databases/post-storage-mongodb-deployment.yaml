@@ -1,0 +1,59 @@
+# MongoDB Deployment for Post Storage Service
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: post-storage-mongodb-deployment
+  namespace: default
+  labels:
+    app: post-storage-mongodb
+    component: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: post-storage-mongodb
+      component: database
+  template:
+    metadata:
+      labels:
+        app: post-storage-mongodb
+        component: database
+    spec:
+      containers:
+      - name: mongodb
+        image: mongo:4.4.6
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 27017
+          name: mongodb
+          protocol: TCP
+        volumeMounts:
+        - name: mongodb-data
+          mountPath: /data/db
+        resources:
+          requests:
+            cpu: 200m  # Increased from 100m to handle compose endpoint load (66% success rate) - more CPU for write operations
+            memory: 768Mi  # Increased from 512Mi for better caching during post storage operations
+          limits:
+            cpu: 1500m  # Increased from 1000m for headroom during compose spikes
+            memory: 3Gi  # Increased from 2Gi for larger working set
+      volumes:
+      - name: mongodb-data
+        persistentVolumeClaim:
+          claimName: post-storage-mongodb-pvc
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: post-storage-mongodb-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi  # Reduced from 10Gi for development/testing
+

@@ -1,0 +1,21 @@
+# Kubernetes Service for Grafana
+#
+# WHAT THIS DOES:
+# This file exposes the Grafana deployment to the internet using a LoadBalancer.
+# A LoadBalancer service tells the cloud provider (GKE) to provision an
+# external IP address and route traffic from that IP to the Grafana pods.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+spec:
+  type: LoadBalancer  # Exposes the service externally using a cloud provider's load balancer
+  ports:
+  - port: 3000        # The port the service will be exposed on
+    targetPort: 3000  # The port on the Grafana pods to send traffic to
+  selector:
+    app: grafana      # Selects the pods with the label "app: grafana"

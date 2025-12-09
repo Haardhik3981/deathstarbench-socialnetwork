@@ -1,0 +1,89 @@
+# Kubernetes Deployment for User Timeline Service (DeathStarBench)
+#
+# WHAT THIS DOES:
+# Manages the User Timeline service which handles individual user activity timelines.
+# Shows all posts created by a specific user in chronological order.
+# Connects to user-timeline-mongodb for storage and user-timeline-redis for caching.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-timeline-service-deployment
+  namespace: default
+  labels:
+    app: user-timeline-service
+    component: backend
+    microservice: deathstarbench
+
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+
+  selector:
+    matchLabels:
+      app: user-timeline-service
+      component: backend
+
+  template:
+    metadata:
+      labels:
+        app: user-timeline-service
+        component: backend
+        microservice: deathstarbench
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+
+    spec:
+      containers:
+      - name: user-timeline-service
+        image: us-central1-docker.pkg.dev/cse239-479821/social-network-images/social-network-microservices:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/usr/local/bin/UserTimelineService"]
+
+        ports:
+        - containerPort: 9090
+          name: thrift
+          protocol: TCP
+
+        env:
+        - name: SERVICE_NAME
+          value: "user-timeline-service"
+
+        volumeMounts:
+        - name: config
+          mountPath: /social-network-microservices/config/jaeger-config.yml
+          subPath: jaeger-config.yml
+          readOnly: true
+        - name: config
+          mountPath: /social-network-microservices/config/service-config.json
+          subPath: service-config.json
+          readOnly: true
+
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+
+        readinessProbe:
+          exec:
+            command: ["/bin/sh", "-c", "pgrep -f UserTimelineService > /dev/null"]
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 2
+          successThreshold: 1
+          failureThreshold: 3
+
+      volumes:
+      - name: config
+        configMap:
+          name: deathstarbench-config
+
+      restartPolicy: Always

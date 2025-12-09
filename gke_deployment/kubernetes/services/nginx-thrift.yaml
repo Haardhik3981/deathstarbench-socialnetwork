@@ -1,0 +1,25 @@
+# Kubernetes Service for Nginx-Thrift Gateway (DeathStarBench)
+#
+# WHAT THIS DOES:
+# Provides a stable network endpoint for the nginx-thrift gateway.
+# This is the entry point for all HTTP API requests to the social network.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-thrift
+  namespace: default
+  labels:
+    app: nginx-thrift
+    component: gateway
+spec:
+  type: ClusterIP  # Use ClusterIP for port-forward, LoadBalancer for external access
+  selector:
+    app: nginx-thrift
+    component: gateway
+  ports:
+  - name: http
+    port: 8080        # Port the service listens on
+    targetPort: 8080  # Port on the pods to forward to
+    protocol: TCP
+

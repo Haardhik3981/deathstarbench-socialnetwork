@@ -1,0 +1,21 @@
+# Kubernetes Service for User Timeline Service
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-timeline-service
+  namespace: default
+  labels:
+    app: user-timeline-service
+    component: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: user-timeline-service
+    component: backend
+  ports:
+  - name: thrift
+    port: 9090        # DeathStarBench uses 9090 for all services
+    targetPort: 9090
+    protocol: TCP
+

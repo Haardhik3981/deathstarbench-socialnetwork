@@ -1,0 +1,150 @@
+# Docker Compose Configuration
+#
+# WHAT THIS DOES:
+# Docker Compose allows you to define and run multiple containers as a single application.
+# This file defines all the microservices and their relationships, making it easy to
+# run the entire application stack locally for development and testing.
+#
+# KEY CONCEPTS:
+# - services: Each service is a container that will be created
+# - networks: Services on the same network can communicate using service names
+# - volumes: Persistent storage that survives container restarts
+# - environment: Environment variables passed to containers
+# - depends_on: Ensures services start in the correct order
+#
+# WHY WE USE IT:
+# Before deploying to Kubernetes, it's useful to test everything locally. Docker Compose
+# makes it easy to spin up the entire stack with a single command: docker-compose up
+
+version: '3.8'
+
+# Define all the services (containers) in our application
+services:
+  # Nginx reverse proxy - the entry point for all requests
+  nginx:
+    build:
+      context: ../nginx
+      dockerfile: Dockerfile
+    ports:
+      # Map host port 8080 to container port 80
+      # Access the application at http://localhost:8080
+      - "8080:80"
+    depends_on:
+      - user-service
+      - social-graph-service
+      - user-timeline-service
+    networks:
+      - social-network-network
+    restart: unless-stopped
+
+  # User Service - handles user operations
+  user-service:
+    build:
+      context: ../user
+      dockerfile: Dockerfile
+    environment:
+      # Database connection string
+      # In production, this would be a secure connection string
+      - DATABASE_URL=postgresql://user:password@postgres:5432/socialnetwork
+      - PORT=8080
+      - LOG_LEVEL=info
+    ports:
+      - "8080:8080"
+    networks:
+      - social-network-network
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    healthcheck:
+      # Health check configuration
+      # Docker Compose will wait for this to pass before marking service as healthy
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Social Graph Service - manages friend connections
+  social-graph-service:
+    build:
+      context: ../social-graph
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://user:password@postgres:5432/socialnetwork
+      - PORT=9090
+      - LOG_LEVEL=info
+    ports:
+      - "9090:9090"
+    networks:
+      - social-network-network
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # User Timeline Service - manages user timelines
+  user-timeline-service:
+    build:
+      context: ../user-timeline
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://user:password@postgres:5432/socialnetwork
+      - PORT=9091
+      - LOG_LEVEL=info
+    ports:
+      - "9091:9091"
+    networks:
+      - social-network-network
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9091/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL Database
+  # Most microservices need a database to store data
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      # Database credentials
+      # In production, use secrets management (Kubernetes Secrets)
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=socialnetwork
+    volumes:
+      # Persist database data on the host machine
+      # This ensures data survives container restarts
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - social-network-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# Define networks
+# Services on the same network can communicate using service names as hostnames
+networks:
+  social-network-network:
+    driver: bridge
+    # Bridge network allows containers to communicate with each other
+
+# Define volumes
+# Volumes provide persistent storage that survives container restarts
+volumes:
+  postgres-data:
+    # Named volume - Docker manages where this is stored on the host
+

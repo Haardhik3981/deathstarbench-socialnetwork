@@ -1,0 +1,105 @@
+# Prometheus Adapter Configuration
+#
+# WHAT THIS DOES:
+# Prometheus Adapter exposes Prometheus metrics to Kubernetes HPA so that
+# HPA can scale based on custom metrics like latency, request rate, etc.
+#
+# HOW IT WORKS:
+# 1. Prometheus collects metrics from your services
+# 2. Prometheus Adapter queries Prometheus
+# 3. Adapter exposes metrics via Kubernetes Custom Metrics API
+# 4. HPA can then use these metrics for scaling decisions
+#
+# INSTALLATION:
+# See setup-prometheus-adapter.sh script for installation instructions
+#
+# METRICS MAPPING:
+# This configuration maps Prometheus metrics to Kubernetes custom metrics
+# that HPA can use. Adjust the rules based on your actual metric names.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adapter-config
+  namespace: monitoring
+  labels:
+    app: prometheus-adapter
+data:
+  config.yaml: |
+    # Prometheus Adapter configuration
+    rules:
+      # Rule 1: HTTP Request Duration (Latency)
+      # Maps Prometheus http_request_duration_seconds to HPA metric
+      - seriesQuery: 'http_request_duration_seconds{namespace!="",pod!=""}'
+        resources:
+          overrides:
+            namespace: {resource: "namespace"}
+            pod: {resource: "pod"}
+        name:
+          matches: "^http_request_duration_seconds$"
+          as: "http_request_duration_seconds"
+        metricsQuery: |
+          sum(rate(<<.Series>>{<<.LabelMatchers>>}[2m])) by (<<.GroupBy>>)
+      
+      # Rule 2: HTTP Request Duration (p95 latency)
+      # For percentile-based scaling
+      - seriesQuery: 'http_request_duration_seconds{namespace!="",pod!=""}'
+        resources:
+          overrides:
+            namespace: {resource: "namespace"}
+            pod: {resource: "pod"}
+        name:
+          matches: "^http_request_duration_seconds$"
+          as: "http_request_duration_seconds_p95"
+        metricsQuery: |
+          histogram_quantile(0.95, sum(rate(<<.Series>>_bucket{<<.LabelMatchers>>}[2m])) by (<<.GroupBy>>, le))
+      
+      # Rule 3: Request Rate (RPS)
+      # For scaling based on throughput
+      - seriesQuery: 'http_requests_total{namespace!="",pod!=""}'
+        resources:
+          overrides:
+            namespace: {resource: "namespace"}
+            pod: {resource: "pod"}
+        name:
+          matches: "^http_requests_total$"
+          as: "http_requests_per_second"
+        metricsQuery: |
+          sum(rate(<<.Series>>{<<.LabelMatchers>>}[2m])) by (<<.GroupBy>>)
+      
+      # Rule 4: Error Rate
+      # For scaling based on error rates
+      - seriesQuery: 'http_requests_total{namespace!="",pod!="",status=~"5.."}'
+        resources:
+          overrides:
+            namespace: {resource: "namespace"}
+            pod: {resource: "pod"}
+        name:
+          matches: "^http_requests_total$"
+          as: "http_error_rate"
+        metricsQuery: |
+          sum(rate(<<.Series>>{<<.LabelMatchers>>}[2m])) by (<<.GroupBy>>)
+    
+    # Prometheus connection
+    prometheus:
+      url: http://prometheus.monitoring.svc.cluster.local:9090
+      port: 9090
+
+---
+# Service for Prometheus Adapter
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-adapter
+  namespace: monitoring
+  labels:
+    app: prometheus-adapter
+spec:
+  type: ClusterIP
+  ports:
+  - port: 443
+    targetPort: 6443
+    protocol: TCP
+  selector:
+    app: prometheus-adapter
+

@@ -1,0 +1,73 @@
+# Vertical Pod Autoscaler (VPA) for User Timeline Service
+#
+# WHAT THIS DOES:
+# VPA automatically adjusts the CPU and memory requests and limits for pods based on
+# historical usage. Unlike HPA (which changes the number of pods), VPA changes the
+# resources allocated to each pod.
+#
+# KEY CONCEPTS:
+# - updateMode: How VPA applies recommendations
+#   - Off: Only provides recommendations (doesn't change anything)
+#   - Initial: Only sets resources when pods are first created
+#   - Auto: Automatically updates resources (requires VPA admission controller)
+#   - Recreate: Recreates pods with new resource settings
+# - targetRef: Which deployment to analyze
+# - resourcePolicy: Constraints on resource recommendations
+#
+# HOW IT WORKS:
+# 1. VPA monitors resource usage over time
+# 2. It learns the actual CPU/memory needs of your application
+# 3. It recommends or automatically sets appropriate resource requests/limits
+# 4. This optimizes resource utilization and can reduce costs
+#
+# WHY WE NEED IT:
+# Setting resource requests/limits is often guesswork. VPA learns from actual usage
+# and optimizes automatically. This can:
+# - Reduce costs by not over-provisioning
+# - Improve performance by ensuring adequate resources
+# - Prevent OOM (Out of Memory) kills
+#
+# NOTE: VPA and HPA both scaling on CPU/memory can conflict. Best practice is to
+# use VPA for requests and HPA for custom metrics, or use VPA in "Off" mode for
+# recommendations only.
+
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: user-timeline-service-vpa
+  namespace: default
+spec:
+  # Which deployment to analyze and scale
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: user-timeline-service-deployment
+  
+  # The update policy for the VPA.
+  updatePolicy:
+    # "Off" means VPA will only provide recommendations without automatically applying them.
+    # Use kubectl describe vpa to view recommendations, then manually apply if desired.
+    updateMode: "Off"
+  
+  # Resource policy - constraints on recommendations
+  resourcePolicy:
+    containerPolicies:
+    - containerName: user-timeline-service
+      # Minimum resources VPA can recommend (matches current deployment requests)
+      minAllowed:
+        cpu: 100m      # Matches current deployment request
+        memory: 128Mi  # Matches current deployment request
+      
+      # Maximum resources VPA can recommend (matches current deployment limits)
+      maxAllowed:
+        cpu: 1000m     # Matches current deployment limit
+        memory: 512Mi  # Matches current deployment limit
+      
+      # Control which resource types VPA can modify
+      controlledResources: ["cpu", "memory"]
+      
+      # Control which resource fields VPA can modify
+      # - Requests: Minimum guaranteed resources
+      # - Limits: Maximum allowed resources
+      controlledValues: RequestsAndLimits
+

@@ -1,0 +1,88 @@
+# Kubernetes Deployment for URL Shorten Service (DeathStarBench)
+#
+# WHAT THIS DOES:
+# Shortens URLs in posts. Converts long URLs into short links for sharing.
+# Connects to url-shorten-mongodb for storage and url-shorten-memcached for caching.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: url-shorten-service-deployment
+  namespace: default
+  labels:
+    app: url-shorten-service
+    component: backend
+    microservice: deathstarbench
+
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+
+  selector:
+    matchLabels:
+      app: url-shorten-service
+      component: backend
+
+  template:
+    metadata:
+      labels:
+        app: url-shorten-service
+        component: backend
+        microservice: deathstarbench
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+
+    spec:
+      containers:
+      - name: url-shorten-service
+        image: us-central1-docker.pkg.dev/cse239-479821/social-network-images/social-network-microservices:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/usr/local/bin/UrlShortenService"]
+
+        ports:
+        - containerPort: 9090
+          name: thrift
+          protocol: TCP
+
+        env:
+        - name: SERVICE_NAME
+          value: "url-shorten-service"
+
+        volumeMounts:
+        - name: config
+          mountPath: /social-network-microservices/config/jaeger-config.yml
+          subPath: jaeger-config.yml
+          readOnly: true
+        - name: config
+          mountPath: /social-network-microservices/config/service-config.json
+          subPath: service-config.json
+          readOnly: true
+
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+
+        readinessProbe:
+          exec:
+            command: ["/bin/sh", "-c", "pgrep -f UrlShortenService > /dev/null"]
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 2
+          successThreshold: 1
+          failureThreshold: 3
+
+      volumes:
+      - name: config
+        configMap:
+          name: deathstarbench-config
+
+      restartPolicy: Always
